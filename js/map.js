@@ -94,7 +94,7 @@
       const kx = 111320 * Math.cos(b.lat * rad), ky = 110574;
       const c = [[1, 1], [1, -1], [-1, -1], [-1, 1], [1, 1]].map(([a, s]) => [
         b.lng + (a * L * fx + s * W * rx) / kx, b.lat + (a * L * fy + s * W * ry) / ky]);
-      return { type: 'Feature', properties: { h: 3.3, color: b.status === 'offline' ? '#b9bfb6' : '#f7c600' }, geometry: { type: 'Polygon', coordinates: [c] } };
+      return { type: 'Feature', properties: { h: 3.3, color: b.status === 'offline' ? '#b9bfb6' : '#f2b705' }, geometry: { type: 'Polygon', coordinates: [c] } };
     }
 
     select(id) {

@@ -129,12 +129,12 @@
 
   function detail(b) {
     if (!b) return '';
-    if (b.noData) return `<button class="ghost back" data-back>← সব বাস</button><div class="d-head"><span class="badge offline">${b.id}</span><div><h2>বাস ${b.id} · ${b.routeName}</h2><span class="pill offline">অফলাইন</span></div></div><p class="section-title">এই বাস থেকে এখনো লোকেশন আসেনি।</p>`;
+    if (b.noData) return `<button class="ghost back" data-back><svg class="i" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg> সব বাস</button><div class="d-head"><span class="badge offline">${b.id}</span><div><h2>বাস ${b.id} · ${b.routeName}</h2><span class="pill offline">অফলাইন</span></div></div><p class="section-title">এই বাস থেকে এখনো লোকেশন আসেনি।</p>`;
     const dirText = b.toCampus ? 'ক্যাম্পাসের দিকে আসছে' : 'ক্যাম্পাস থেকে যাচ্ছে';
     const off = b.status === 'offline';
     const next = off ? 'অফলাইন' : (b.nextStop ? b.nextStop.name : 'গন্তব্যে পৌঁছেছে');
     return `
-      <button class="ghost back" data-back>← সব বাস</button>
+      <button class="ghost back" data-back><svg class="i" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg> সব বাস</button>
       <div class="d-head">
         <span class="badge ${b.status}">${b.id}</span>
         <div><h2>বাস ${b.id} · ${b.routeName}</h2><span class="pill ${b.status}">${STATUS[b.status]}${b.atStop && b.status === 'stopped' ? ' · ' + b.atStop : ''}</span></div>
@@ -147,7 +147,7 @@
         </div>
         <div class="track" aria-hidden="true">
           <div class="fill" style="width:${(b.progress * 100).toFixed(1)}%"></div>
-          <div class="bus" style="left:${(b.progress * 100).toFixed(1)}%">🚌</div>
+          <div class="bus" style="left:${(b.progress * 100).toFixed(1)}%"><svg class="i" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="15" rx="3"/><path d="M4 11h16M8 18v2M16 18v2"/><circle cx="8.5" cy="14.5" r=".6" fill="currentColor"/><circle cx="15.5" cy="14.5" r=".6" fill="currentColor"/></svg></div>
         </div>
         <div class="j-foot">${off ? '<b>সংযোগ নেই</b> · ' + lastSeen(b) : '<b>' + dirText + '</b>'}</div>
       </div>

@@ -7,40 +7,52 @@
 <title>বাস ট্র্যাকার · ড্রাইভার ফোন</title>
 <link rel="icon" href="../assets/logo.png">
 <style>
-  :root { --green:#0b7a1c; --yellow:#ffd500; --red:#e2231a; --ink:#14201a; }
+  :root { --green:#0b6e1c; --green-700:#095a17; --ink:#17211b; --red:#d92d20; }
   * { box-sizing: border-box; }
-  body { margin:0; min-height:100vh; font-family:"Hind Siliguri","Noto Sans Bengali",system-ui,sans-serif; background:var(--green); color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:24px; text-align:center; }
-  img { width:72px; background:#fff; border-radius:14px; padding:6px; }
-  h1 { margin:0; font-size:22px; }
-  .bus { font-size:84px; font-weight:800; line-height:1; background:var(--yellow); color:var(--ink); border:6px solid var(--ink); border-radius:50%; width:150px; height:150px; display:grid; place-items:center; }
-  #st { font-size:20px; font-weight:700; min-height:30px; }
-  #meta { opacity:.9; font-size:15px; line-height:1.6; min-height:70px; }
-  button, input { font:inherit; border-radius:14px; border:0; padding:14px 22px; font-size:18px; font-weight:700; }
-  input { width:min(320px,100%); background:#fff; color:var(--ink); text-align:center; }
-  button { background:var(--yellow); color:var(--ink); border:3px solid var(--ink); width:min(320px,100%); }
-  button.stop { background:var(--red); color:#fff; border-color:#7d0f0a; }
-  small { opacity:.8; max-width:340px; }
+  body { margin:0; min-height:100vh; font-family:"Inter","Hind Siliguri","Noto Sans Bengali",system-ui,sans-serif; background:#f5f6f3; color:var(--ink); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:24px; text-align:center; }
+  .card { background:#fff; border:1px solid #e4e8e2; border-radius:16px; padding:28px 24px; width:min(380px,100%); box-shadow:0 2px 4px rgba(16,24,20,.05),0 10px 28px rgba(16,24,20,.08); display:flex; flex-direction:column; gap:14px; align-items:center; }
+  img { width:64px; }
+  h1 { margin:0; font-size:19px; font-weight:650; }
+  p { margin:0; color:#6b766f; font-size:14px; line-height:1.5; }
+  .ico { width:84px; height:84px; border-radius:20px; background:#eef5ee; border:1px solid #dcebdd; display:grid; place-items:center; color:var(--green); }
+  .ico svg { width:42px; height:42px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  #st { font-size:16px; font-weight:600; display:flex; align-items:center; gap:8px; min-height:24px; }
+  #st::before { content:""; width:9px; height:9px; border-radius:50%; background:#9aa29b; }
+  #st.live::before { background:#17a34a; box-shadow:0 0 0 4px rgba(23,163,74,.18); }
+  #st.bad::before { background:var(--red); }
+  #meta { color:#6b766f; font-size:13.5px; line-height:1.7; min-height:46px; }
+  button, input { font:inherit; border-radius:10px; font-size:16px; width:100%; }
+  input { border:1px solid #cfd6cd; padding:12px 14px; text-align:center; color:var(--ink); }
+  input:focus { outline:none; border-color:var(--green); box-shadow:0 0 0 3px rgba(11,110,28,.14); }
+  button { border:0; padding:13px 18px; font-weight:600; background:var(--green); color:#fff; cursor:pointer; }
+  button:hover { background:var(--green-700); }
+  button.stop { background:#fff; color:var(--red); border:1px solid #fecdca; }
+  button.link { background:none; color:#6b766f; font-size:13px; font-weight:500; padding:6px; }
+  form { display:flex; flex-direction:column; gap:12px; width:100%; }
+  small { color:#8a938c; max-width:340px; font-size:12.5px; line-height:1.5; }
   [hidden] { display:none !important; }
 </style>
 </head>
 <body>
-  <img src="../assets/logo.png" alt="">
-  <h1>ড্রাইভার ফোন · লোকেশন পাঠানো</h1>
+  <div class="card">
+    <img src="../assets/logo.png" alt="">
+    <h1>ড্রাইভার ফোন · লোকেশন পাঠানো</h1>
 
-  <form id="setup">
-    <p>অ্যাডমিনের দেওয়া বাস-টোকেন দিন (একবারই লাগবে)</p>
-    <input id="tok" placeholder="টোকেন" autocomplete="off" required><br><br>
-    <button>সেভ করুন</button>
-  </form>
+    <form id="setup">
+      <p>অ্যাডমিনের দেওয়া বাস-টোকেন দিন (একবারই লাগবে)</p>
+      <input id="tok" placeholder="টোকেন" autocomplete="off" required>
+      <button>সেভ করুন</button>
+    </form>
 
-  <section id="run" hidden>
-    <div class="bus" id="busno">–</div><br>
-    <div id="st">বন্ধ আছে</div>
-    <div id="meta"></div><br>
-    <button id="go">▶ শুরু করুন</button><br><br>
-    <button id="reset" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.5);font-size:14px;padding:8px">টোকেন বদলান</button>
-  </section>
-  <small id="tip">টিপস: ফোন চার্জে রাখুন ও স্ক্রিন চালু রাখুন। স্ক্রিন বন্ধ করলে ব্রাউজার GPS থামিয়ে দিতে পারে।</small>
+    <section id="run" hidden style="display:flex;flex-direction:column;gap:14px;align-items:center;width:100%">
+      <div class="ico"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="15" rx="3"/><path d="M4 11h16M8 18v2M16 18v2"/><circle cx="8.5" cy="14.5" r=".6" fill="currentColor"/><circle cx="15.5" cy="14.5" r=".6" fill="currentColor"/></svg></div>
+      <div id="st">বন্ধ আছে</div>
+      <div id="meta"></div>
+      <button id="go">শুরু করুন</button>
+      <button id="reset" class="link">টোকেন বদলান</button>
+    </section>
+  </div>
+  <small>টিপস: ফোন চার্জে রাখুন ও স্ক্রিন চালু রাখুন। স্ক্রিন বন্ধ করলে ব্রাউজার GPS থামিয়ে দিতে পারে।</small>
 
 <script>
 (() => {
@@ -52,6 +64,7 @@
   if (fromUrl) { token = fromUrl; try { localStorage.setItem(KEY, token); } catch {} history.replaceState(null, '', location.pathname); }
 
   let watch = null, wake = null, last = 0, sent = 0, fails = 0, pending = null, timer = null;
+  const setSt = (t, c) => { const e = $('#st'); e.textContent = t; e.className = c || ''; };
   const show = () => { $('#setup').hidden = !!token; $('#run').hidden = !token; };
   $('#setup').onsubmit = e => { e.preventDefault(); token = $('#tok').value.trim(); try { localStorage.setItem(KEY, token); } catch {} show(); };
   $('#reset').onclick = () => { stop(); token = null; try { localStorage.removeItem(KEY); } catch {} show(); };
@@ -61,19 +74,19 @@
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && watch !== null) lock(); });
 
   function start() {
-    if (!('geolocation' in navigator)) { $('#st').textContent = 'এই ব্রাউজারে GPS নেই'; return; }
+    if (!('geolocation' in navigator)) { setSt('এই ব্রাউজারে GPS নেই', 'bad'); return; }
     lock();
-    $('#go').textContent = '■ থামান'; $('#go').classList.add('stop'); $('#st').textContent = 'GPS খুঁজছে…';
+    $('#go').textContent = 'থামান'; $('#go').classList.add('stop'); setSt('GPS খুঁজছে…');
     watch = navigator.geolocation.watchPosition(onFix, onErr, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
     timer = setInterval(flush, 1000);
   }
   function stop() {
     if (watch !== null) navigator.geolocation.clearWatch(watch); watch = null; clearInterval(timer);
     try { wake && wake.release(); } catch {} wake = null;
-    $('#go').textContent = '▶ শুরু করুন'; $('#go').classList.remove('stop'); $('#st').textContent = 'বন্ধ আছে';
+    $('#go').textContent = 'শুরু করুন'; $('#go').classList.remove('stop'); setSt('বন্ধ আছে');
   }
   function onFix(p) { pending = p; flush(); }
-  function onErr(e) { $('#st').textContent = e.code === 1 ? 'লোকেশনের অনুমতি দিন' : 'GPS সিগন্যাল নেই'; }
+  function onErr(e) { setSt(e.code === 1 ? 'লোকেশনের অনুমতি দিন' : 'GPS সিগন্যাল নেই', 'bad'); }
 
   async function flush() {
     if (!pending || Date.now() - last < MIN_GAP) return;
@@ -81,16 +94,14 @@
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'content-type': 'application/json' }, keepalive: true,
         body: JSON.stringify({ token, lat: c.latitude, lng: c.longitude, speed: c.speed ?? undefined, heading: c.heading ?? undefined, acc: c.accuracy, ts: timestamp }) });
-      if (r.status === 401) { $('#st').textContent = 'টোকেন ভুল!'; return; }
+      if (r.status === 401) { setSt('টোকেন ভুল!', 'bad'); return; }
       if (!r.ok) throw new Error(r.status);
       sent++; fails = 0;
-      $('#st').textContent = '● লাইভ — পাঠানো হচ্ছে';
+      setSt('লাইভ — পাঠানো হচ্ছে', 'live');
       $('#meta').innerHTML = `পাঠানো: ${sent} বার · নির্ভুলতা ±${Math.round(c.accuracy)} মি.<br>গতি: ${c.speed != null ? Math.round(c.speed * 3.6) : '–'} কিমি/ঘ · ${new Date().toLocaleTimeString('bn-BD')}`;
-    } catch { fails++; $('#st').textContent = 'ইন্টারনেট সমস্যা — আবার চেষ্টা করছে…'; }
+    } catch { fails++; setSt('ইন্টারনেট সমস্যা — আবার চেষ্টা করছে…', 'bad'); }
   }
   show();
-  // বাস নম্বর দেখাতে টোকেনের পাশের নম্বর API থেকে আনা যায়; আপাতত প্রথম সফল পাঠানোর পর দেখাবে না — সাধারণ ডিসপ্লে
-  $('#busno').textContent = '🚌';
 })();
 </script>
 </body>
