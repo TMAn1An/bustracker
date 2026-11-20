@@ -63,7 +63,7 @@
   async function boot() {
     Feed.onAuthFail = () => { logout(); showErr('Your session has expired. Please sign in again.'); };
     Feed.onStatus = ok => { $('#conn').hidden = ok; };
-    map = new BusMap($('#map'), { routes: Feed.routes, campus: Feed.campus, onSelect: openBus });
+    map = createMap();
     Feed.onRoutes = f => {
       map.setRoutes(f.routes);
       if (view.name === 'route' && view.routeId && !f.routes.some(r => r.id === view.routeId)) go({ name: 'routes' });
@@ -71,7 +71,7 @@
     };
     checkNewNotices();
     Share.onChange = () => render();
-    await map.ready;
+    // The list, notices and live data never wait for the map: on a slow mobile connection the map can take long to load.
     let last = performance.now();
     (function loop(now) {
       const dt = Math.min(0.2, (now - last) / 1000); last = now;
@@ -106,6 +106,23 @@
     $('#tZin').addEventListener('click', () => map.zoom(0.5));
     $('#tZout').addEventListener('click', () => map.zoom(2));
     $('#tLoc').addEventListener('click', () => map.recenter());
+  }
+
+  /* ---------- map (loads in the background) ---------- */
+  function createMap() {
+    const msg = $('#mapMsg');
+    const show = (text, isErr) => { msg.textContent = text; msg.className = 'map-msg' + (isErr ? ' err' : ''); msg.hidden = false; };
+    show('Loading map…');
+    let m;
+    try { m = new BusMap($('#map'), { routes: Feed.routes, campus: Feed.campus, onSelect: openBus }); }
+    catch (e) {
+      show('This browser cannot show the map. Live bus times in the list still work.', true);
+      const noop = () => {};
+      return { setRoutes: noop, setBuses: noop, select: noop, selectRoute: noop, setPadding: noop, isTop: () => false, setView: noop, rotate: noop, zoom: noop, recenter: noop, resize: noop };
+    }
+    const slow = setTimeout(() => show('The map is slow to load on this connection. Live bus info in the list works meanwhile.', true), 15000);
+    m.ready.then(() => { clearTimeout(slow); msg.hidden = true; });
+    return m;
   }
 
   /* ---------- navigation ---------- */
