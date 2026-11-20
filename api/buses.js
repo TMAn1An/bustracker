@@ -1,9 +1,9 @@
-import { db, bearer, verifySession } from './_lib.js';
+import { db, anyFrom, getRev } from './_lib.js';
 
-// স্টুডেন্ট অ্যাপ ৩-৫ সেকেন্ডে একবার এটা ডাকে। সার্ভারের সময়ও ফেরত যায় (ক্লায়েন্টের ঘড়ি ভুল হলেও চলবে)।
+// The student app polls this every ~4 s. Server time is returned too (so a wrong client clock does not matter).
 export default async function handler(req, res) {
-  if (!verifySession(bearer(req))) return res.status(401).json({ error: 'লগইন করুন।' });
-  const r = await db().execute('SELECT bus_id AS id, lat, lng, speed, heading, ts FROM positions');
+  if (!anyFrom(req)) return res.status(401).json({ error: 'Please sign in.' });
+  const [r, rev] = await Promise.all([db().execute('SELECT bus_id AS id, lat, lng, speed, heading, ts FROM positions'), getRev()]);
   res.setHeader('Cache-Control', 'no-store');
-  res.status(200).json({ now: Date.now(), buses: r.rows.map(x => ({ ...x })) });
+  res.status(200).json({ now: Date.now(), rev, buses: r.rows.map(x => ({ ...x })) });
 }

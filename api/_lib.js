@@ -1,4 +1,4 @@
-// শেয়ার্ড হেলপার: DB, টোকেন, পাসওয়ার্ড হ্যাশ। (আন্ডারস্কোর = Vercel এটাকে এন্ডপয়েন্ট বানায় না)
+// Shared helpers: DB, tokens, password hashing. (A leading underscore keeps Vercel from exposing this as an endpoint.)
 import { createClient } from '@libsql/client';
 import { createHmac, randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypto';
 
@@ -11,15 +11,45 @@ export function db() {
   return _db;
 }
 
+export const CAMPUS = { name: 'IUBAT Campus', lat: 23.8882231, lng: 90.3906409 };
+
 export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS students (id TEXT PRIMARY KEY, name TEXT, pass TEXT NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS buses (id TEXT PRIMARY KEY, token_hash TEXT NOT NULL)`,
-  // প্রতি বাসে মাত্র একটা সারি — সবসময় সর্বশেষ লোকেশন
+  `CREATE TABLE IF NOT EXISTS admins (username TEXT PRIMARY KEY, pass TEXT NOT NULL)`,
+  // stops: JSON [{name,lat,lng}] (far end -> campus; campus is appended automatically), geometry: JSON [[lng,lat],...]
+  `CREATE TABLE IF NOT EXISTS routes (id TEXT PRIMARY KEY, name TEXT NOT NULL, color TEXT NOT NULL,
+     stops TEXT NOT NULL, geometry TEXT NOT NULL, updated_at INTEGER NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS buses (id TEXT PRIMARY KEY, route_id TEXT, token_hash TEXT NOT NULL)`,
+  // one row per bus: always the latest position
   `CREATE TABLE IF NOT EXISTS positions (bus_id TEXT PRIMARY KEY, lat REAL NOT NULL, lng REAL NOT NULL,
      speed REAL, heading REAL, acc REAL, ts INTEGER NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`,
 ];
 
-/* ---------- পাসওয়ার্ড ---------- */
+/** Bump the config revision so clients reload routes/buses. */
+export async function bumpRev() {
+  await db().execute({ sql: `INSERT INTO settings (key,value) VALUES ('rev',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, args: [String(Date.now())] });
+}
+export async function getRev() {
+  const r = await db().execute(`SELECT value FROM settings WHERE key='rev'`);
+  return r.rows[0]?.value || '0';
+}
+
+/** Snap the route to roads via OSRM (stops + campus). Falls back to straight lines if OSRM is unreachable. */
+export async function buildGeometry(stops) {
+  const pts = [...stops, CAMPUS];
+  const straight = pts.map(p => [p.lng, p.lat]);
+  try {
+    const url = 'https://router.project-osrm.org/route/v1/driving/' + pts.map(p => `${p.lng},${p.lat}`).join(';') + '?overview=full&geometries=geojson';
+    const r = await fetch(url, { headers: { 'User-Agent': 'iubat-bus-tracker/0.3' }, signal: AbortSignal.timeout(10000) });
+    const j = await r.json();
+    const g = j.routes?.[0];
+    if (g) return { geometry: g.geometry.coordinates.map(([x, y]) => [+x.toFixed(6), +y.toFixed(6)]), km: g.distance / 1000, snapped: true };
+  } catch { /* fall through */ }
+  return { geometry: straight, km: null, snapped: false };
+}
+
+/* ---------- passwords ---------- */
 export function hashPassword(pw) {
   const salt = randomBytes(16);
   return salt.toString('hex') + ':' + scryptSync(pw, salt, 32).toString('hex');
@@ -32,10 +62,10 @@ export function checkPassword(pw, stored) {
 }
 export const sha256 = v => createHash('sha256').update(String(v)).digest('hex');
 
-/* ---------- সেশন টোকেন (stateless, HMAC) ---------- */
+/* ---------- session tokens (stateless, HMAC) ---------- */
 const secret = () => {
   const s = process.env.SESSION_SECRET;
-  if (!s && process.env.VERCEL) throw new Error('SESSION_SECRET সেট করা নেই');
+  if (!s && process.env.VERCEL) throw new Error('SESSION_SECRET is not set');
   return s || 'dev-only-secret';
 };
 const b64 = b => Buffer.from(b).toString('base64url');
@@ -50,19 +80,22 @@ export function verifySession(token) {
   if (sig.length !== good.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(good))) return null;
   try { const p = JSON.parse(Buffer.from(body, 'base64url')); return p.exp > Date.now() ? p : null; } catch { return null; }
 }
+export const studentFrom = req => { const p = verifySession(bearer(req)); return p && p.sub.startsWith('s:') ? p : null; };
+export const adminFrom = req => { const p = verifySession(bearer(req)); return p && p.sub.startsWith('a:') ? p : null; };
+export const anyFrom = req => verifySession(bearer(req));
 export const bearer = req => (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
 
-/* ---------- ইনপুট ---------- */
+/* ---------- input ---------- */
 export const num = (v, lo, hi) => { const n = Number(v); return Number.isFinite(n) && n >= lo && n <= hi ? n : null; };
 
-/** বাসের টোকেন যাচাই করে লোকেশন সেভ করে। */
+/** Verifies a bus token and stores its latest position. */
 export async function saveFix({ token, lat, lng, speed, heading, acc, ts }) {
   lat = num(lat, -90, 90); lng = num(lng, -180, 180);
-  if (lat === null || lng === null || !token) return { status: 400, error: 'bad request' };
+  if (lat === null || lng === null || !token) return { status: 400, error: 'Bad request' };
   const r = await db().execute({ sql: 'SELECT id FROM buses WHERE token_hash = ?', args: [sha256(token)] });
-  if (!r.rows[0]) return { status: 401, error: 'invalid token' };
+  if (!r.rows[0]) return { status: 401, error: 'Invalid token' };
   const now = Date.now();
-  let t = Number(ts); if (!Number.isFinite(t) || Math.abs(t - now) > 5 * 60e3) t = now; // ঘড়ি ভুল হলে সার্ভারের সময়
+  let t = Number(ts); if (!Number.isFinite(t) || Math.abs(t - now) > 5 * 60e3) t = now; // use server time if the phone clock is wrong
   await db().execute({
     sql: `INSERT INTO positions (bus_id, lat, lng, speed, heading, acc, ts) VALUES (?,?,?,?,?,?,?)
           ON CONFLICT(bus_id) DO UPDATE SET lat=excluded.lat, lng=excluded.lng, speed=excluded.speed,

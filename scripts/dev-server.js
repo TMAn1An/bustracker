@@ -1,4 +1,4 @@
-// লোকাল ডেভ: স্ট্যাটিক ফাইল + /api/* (Vercel ফাংশনের মতো req/res শিম)। npm run dev → http://localhost:3000
+// Local dev: static files + /api/* (with a Vercel-style req/res shim). npm run dev -> http://localhost:3000
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';

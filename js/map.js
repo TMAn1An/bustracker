@@ -1,6 +1,6 @@
 /*
- * BusMap — MapLibre GL (OpenStreetMap ডেটা, OpenFreeMap টাইল) + ৩D বিল্ডিং।
- * বাস = ৩D এক্সট্রুডেড বক্স + নম্বরওয়ালা পিন।
+ * BusMap: MapLibre GL (OpenStreetMap data, OpenFreeMap tiles) with 3D buildings.
+ * A bus = a 3D extruded box + a numbered pin.
  */
 (function () {
   const STYLE = 'https://tiles.openfreemap.org/styles/liberty';
@@ -18,10 +18,9 @@
       });
       this.map.dragRotate.enable(); this.map.touchZoomRotate.enableRotation();
       this.ready = new Promise(res => this.map.on('load', () => { this._layers(); this._campus(); res(); }));
-      // ইউজার নিজে টানলে অনুসরণ বন্ধ
+      // stop following when the user drags the map
       this.map.on('dragstart', e => { if (e.originalEvent) this.follow = false; });
-      this.map.on('wheel', () => { /* জুমে অনুসরণ থাকে */ });
-    }
+          }
 
     _layers() {
       const m = this.map;
@@ -30,7 +29,7 @@
       m.addSource('stops', { type: 'geojson', data: { type: 'FeatureCollection', features: this.routes.flatMap(r => r.stops.map(s => ({
         type: 'Feature', properties: { id: r.id, color: r.color, name: s.name }, geometry: { type: 'Point', coordinates: [s.lng, s.lat] } }))) } });
       m.addSource('buses', { type: 'geojson', data: EMPTY });
-      const before = m.getStyle().layers.find(l => l.type === 'symbol')?.id; // লেবেলের নিচে
+      const before = m.getStyle().layers.find(l => l.type === 'symbol')?.id; // below labels
       m.addLayer({ id: 'route-casing', type: 'line', source: 'routes', layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': '#fff', 'line-width': ['interpolate', ['linear'], ['zoom'], 9, 4, 15, 12], 'line-opacity': .85 } }, before);
       m.addLayer({ id: 'route-line', type: 'line', source: 'routes', layout: { 'line-cap': 'round', 'line-join': 'round' },
@@ -41,6 +40,17 @@
         'fill-extrusion-color': ['get', 'color'], 'fill-extrusion-height': ['get', 'h'], 'fill-extrusion-base': 0,
         'fill-extrusion-opacity': 1, 'fill-extrusion-vertical-gradient': true } });
       this._highlight();
+    }
+
+    /** Called when the admin changes routes: refresh the route/stop layers. */
+    setRoutes(routes) {
+      this.routes = routes;
+      const m = this.map; if (!m.getSource('routes')) return;
+      m.getSource('routes').setData({ type: 'FeatureCollection', features: routes.map(r => ({
+        type: 'Feature', properties: { id: r.id, color: r.color }, geometry: { type: 'LineString', coordinates: r.geometry } })) });
+      m.getSource('stops').setData({ type: 'FeatureCollection', features: routes.flatMap(r => r.stops.map(s => ({
+        type: 'Feature', properties: { id: r.id, color: r.color, name: s.name }, geometry: { type: 'Point', coordinates: [s.lng, s.lat] } }))) });
+      this._highlight(); this._stopLabels();
     }
 
     _highlight() {
@@ -54,11 +64,11 @@
 
     _campus() {
       const el = document.createElement('div'); el.className = 'campus-pin';
-      el.innerHTML = '<img src="assets/logo.png" alt=""><span>IUBAT ক্যাম্পাস</span>';
+      el.innerHTML = '<img src="assets/logo.png" alt=""><span>IUBAT Campus</span>';
       new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([this.campus.lng, this.campus.lat]).addTo(this.map);
     }
 
-    /** প্রতি ফ্রেমে: [{id,lng,lat,heading,color,status,routeId}] */
+    /** Every frame: [{id,lng,lat,heading,color,status,routeId}] */
     setBuses(list) {
       if (!this.map.getSource('buses')) return;
       const seen = new Set(), feats = [];
@@ -67,7 +77,7 @@
         let e = this.buses.get(b.id);
         if (!e) {
           const el = document.createElement('button'); el.className = 'bus-pin'; el.type = 'button';
-          el.setAttribute('aria-label', 'বাস ' + b.id);
+          el.setAttribute('aria-label', 'Bus ' + b.id);
           el.innerHTML = `<b>${b.id}</b>`;
           el.addEventListener('click', ev => { ev.stopPropagation(); this.onSelect(b.id); });
           e = { el, marker: new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -4] }).setLngLat([b.lng, b.lat]).addTo(this.map) };
@@ -88,7 +98,7 @@
       }
     }
 
-    // বাসের পায়ের ছাপ: ১২মি × ২.৮মি, হেডিং অনুযায়ী ঘোরানো
+    // Bus footprint (about 12 m x 3 m), rotated to the heading
     _box(b) {
       const L = 6.2, W = 1.5, h = b.heading * rad, fx = Math.sin(h), fy = Math.cos(h), rx = fy, ry = -fx;
       const kx = 111320 * Math.cos(b.lat * rad), ky = 110574;
@@ -109,7 +119,7 @@
       }
     }
 
-    // setCenter চলমান অ্যানিমেশন বাতিল করে — তাই উড়ে পৌঁছানোর পরই অনুসরণ শুরু
+    // setCenter cancels running animations, so start following only after the fly-to ends
     _followAfterMove(id) {
       this.map.once('moveend', () => { if (this.selected === id) this.follow = true; });
     }
@@ -117,7 +127,7 @@
     _stopLabels() {
       this.stopMarks.forEach(m => m.remove()); this.stopMarks = [];
       const e = this.selected && this.buses.get(this.selected); if (!e) return;
-      const r = this.routes.find(x => x.id === e.routeId);
+      const r = this.routes.find(x => x.id === e.routeId); if (!r) return;
       r.stops.filter(s => !s.name.startsWith('IUBAT')).forEach(s => {
         const el = document.createElement('div'); el.className = 'stop-pill'; el.textContent = s.name; el.style.setProperty('--route', r.color);
         this.stopMarks.push(new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -10] }).setLngLat([s.lng, s.lat]).addTo(this.map));

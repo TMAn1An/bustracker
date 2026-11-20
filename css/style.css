@@ -1,4 +1,4 @@
-/* IUBAT Bus Tracker — সংযত, ট্রানজিট-অ্যাপ ধাঁচ। ব্র্যান্ড: সবুজ (প্রধান) · হলুদ/লাল (ছোট অ্যাকসেন্ট) */
+/* IUBAT Bus Tracker: restrained transit-app style. Brand: green (primary), yellow/red (small accents) */
 :root {
   --green: #0b6e1c;
   --green-700: #095a17;
@@ -18,7 +18,7 @@
   --r: 12px;
   --shadow-sm: 0 1px 2px rgba(16, 24, 20, .06), 0 1px 1px rgba(16, 24, 20, .04);
   --shadow: 0 2px 4px rgba(16, 24, 20, .05), 0 10px 28px rgba(16, 24, 20, .10);
-  --font: "Inter", "Hind Siliguri", "Noto Sans Bengali", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
@@ -28,7 +28,7 @@ button { font: inherit; cursor: pointer; color: inherit; }
 :focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
 svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
-/* ---------- বাটন ---------- */
+/* ---------- Buttons ---------- */
 .btn { border: 0; border-radius: 10px; padding: 13px 18px; font-weight: 600; font-size: 15.5px; transition: background .15s, box-shadow .15s; }
 .btn.primary { background: var(--green); color: #fff; box-shadow: var(--shadow-sm); }
 .btn.primary:hover { background: var(--green-700); }
@@ -38,16 +38,21 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
 .ghost.light { color: #fff; border: 1px solid rgba(255, 255, 255, .4); font-size: 13.5px; padding: 6px 12px; font-weight: 500; }
 .ghost.light:hover { background: rgba(255, 255, 255, .12); }
 
-/* ---------- লগইন ---------- */
+/* ---------- Sign in ---------- */
 .login { height: 100%; display: grid; grid-template-columns: 1.05fr 1fr; background: #fff; }
-.login-art { position: relative; overflow: hidden; background: #0b3d14; }
-.login-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 62%; }
-.art-shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(8, 40, 14, .05) 25%, rgba(8, 40, 14, .88) 100%); }
-.art-copy { position: absolute; left: 56px; right: 56px; bottom: 56px; color: #fff; }
-.art-tag { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; font-size: 12.5px; letter-spacing: .04em; text-transform: uppercase;
-  padding: 5px 11px; border-radius: 6px; margin-bottom: 16px; background: rgba(255, 255, 255, .14); border: 1px solid rgba(255, 255, 255, .28); backdrop-filter: blur(6px); }
-.art-copy h2 { font-size: clamp(26px, 3vw, 36px); line-height: 1.3; margin: 0 0 12px; font-weight: 600; letter-spacing: -.01em; }
-.art-copy p { margin: 0; opacity: .85; font-size: 16px; max-width: 440px; line-height: 1.6; }
+.login-art { position: relative; overflow: hidden; background:
+    radial-gradient(120% 80% at 70% 100%, #14803a 0%, rgba(20,128,58,0) 60%),
+    linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px) 0 0 / 44px 44px,
+    linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px) 0 0 / 44px 44px,
+    linear-gradient(160deg, #0d5a1d, #073b13); }
+.art-copy { position: absolute; left: 56px; right: 56px; top: 64px; color: #fff; z-index: 2; }
+.art-tag { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; font-size: 12px; letter-spacing: .06em; text-transform: uppercase;
+  padding: 5px 11px; border-radius: 6px; margin-bottom: 16px; background: rgba(255, 255, 255, .12); border: 1px solid rgba(255, 255, 255, .26); }
+.art-copy h2 { font-size: clamp(26px, 2.9vw, 36px); line-height: 1.25; margin: 0 0 12px; font-weight: 650; letter-spacing: -.015em; }
+.art-copy p { margin: 0; opacity: .82; font-size: 16px; max-width: 420px; line-height: 1.6; }
+.art-bus { position: absolute; left: 50%; bottom: 64px; width: min(88%, 660px); transform: translateX(-50%); z-index: 1; filter: drop-shadow(0 18px 24px rgba(0, 0, 0, .35)); }
+.art-road { position: absolute; left: 0; right: 0; bottom: 0; height: 74px; background: linear-gradient(#10141199, #0a0d0b); border-top: 1px solid rgba(255,255,255,.08); }
+.art-road::after { content: ""; position: absolute; left: 0; right: 0; top: 34px; height: 3px; background: repeating-linear-gradient(90deg, rgba(255,255,255,.35) 0 36px, transparent 36px 72px); }
 
 .login-card { align-self: center; justify-self: center; width: min(400px, calc(100% - 40px)); display: flex; flex-direction: column; gap: 18px; padding: 12px 0; }
 .login-logo { width: 84px; height: auto; align-self: flex-start; }
@@ -66,7 +71,7 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
 @keyframes shake { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
 .hint { margin: 0; font-size: 12.5px; color: var(--muted); text-align: center; }
 
-/* ---------- অ্যাপ কাঠামো ---------- */
+/* ---------- App layout ---------- */
 .app { height: 100%; display: flex; flex-direction: column; }
 .topbar { height: 60px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; color: #fff; background: var(--green); position: relative; z-index: 5; box-shadow: 0 1px 0 rgba(0,0,0,.12); }
 .topbar::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: linear-gradient(90deg, var(--yellow) 0 33%, var(--red) 33% 66%, transparent 66%); opacity: 0; }
@@ -82,7 +87,7 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
 
 .layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 392px 1fr; }
 
-/* ---------- প্যানেল ---------- */
+/* ---------- Panel ---------- */
 .panel { background: var(--card); display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); z-index: 3; }
 .handle { display: none; }
 .chips { display: flex; gap: 8px; padding: 14px 16px 12px; overflow-x: auto; scrollbar-width: none; flex: none; border-bottom: 1px solid var(--line); }
@@ -122,7 +127,7 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
 .pill.stopped { background: #fdf3d7; color: #8a5f00; }
 .pill.offline { background: #eef0ed; color: #667068; }
 
-/* ---------- ডিটেইল ---------- */
+/* ---------- Detail ---------- */
 .back { margin: 6px 0 0 -8px; display: inline-flex; align-items: center; gap: 4px; font-size: 14px; }
 .d-head { display: flex; align-items: center; gap: 14px; margin: 10px 0 16px; }
 .d-head .badge { width: 56px; height: 56px; font-size: 23px; border-radius: 14px; }
@@ -167,7 +172,7 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
 .timeline li.passed .tm { color: var(--muted); font-weight: 400; }
 .timeline .tag { font-size: 11px; color: var(--green); font-weight: 600; background: var(--green-50); padding: 1px 7px; border-radius: 5px; margin-left: 6px; letter-spacing: .02em; }
 
-/* ---------- স্টেজ / ম্যাপ ---------- */
+/* ---------- Stage / map ---------- */
 .stage { position: relative; min-width: 0; min-height: 0; background: #e8ebe6; overflow: hidden; }
 #map { position: absolute; inset: 0; }
 .tools { position: absolute; right: 14px; top: 14px; display: flex; flex-direction: column; background: #fff; border-radius: 10px; box-shadow: var(--shadow); border: 1px solid rgba(0, 0, 0, .06); overflow: hidden; }
@@ -181,7 +186,7 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
 .dot.run { background: var(--ok); } .dot.stop { background: var(--amber); } .dot.off { background: var(--off); }
 .conn { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); z-index: 2; font-size: 13px; font-weight: 500; background: #fff; color: #b42318; padding: 8px 14px; border-radius: 9px; box-shadow: var(--shadow); border: 1px solid #fecdca; white-space: nowrap; }
 
-/* ---------- ম্যাপ মার্কার ---------- */
+/* ---------- Map markers ---------- */
 .bus-pin { all: unset; cursor: pointer; display: block; position: relative; filter: drop-shadow(0 2px 4px rgba(16, 24, 20, .28)); }
 .bus-pin b { display: flex; align-items: center; gap: 6px; padding: 5px 10px 5px 8px; font: 700 14px/1.1 var(--font); font-variant-numeric: tabular-nums; color: var(--ink); background: #fff; border-radius: 8px; border: 1px solid rgba(0, 0, 0, .1); }
 .bus-pin b::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; }
@@ -202,13 +207,14 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
 .campus-pin span { margin-top: 4px; font: 600 11.5px/1 var(--font); background: var(--green); color: #fff; padding: 4px 8px; border-radius: 6px; letter-spacing: .01em; }
 .maplibregl-ctrl-attrib { font-size: 11px; }
 
-/* ---------- মোবাইল ---------- */
+/* ---------- Mobile ---------- */
 @media (max-width: 860px) {
-  .login { grid-template-columns: 1fr; grid-template-rows: 28vh 1fr; }
-  .art-copy { left: 22px; right: 22px; bottom: 62px; }
-  .art-copy h2 { font-size: 21px; margin: 0; } .art-copy p, .art-tag { display: none; }
-  .login-card { align-self: start; padding: 16px 0 28px; gap: 14px; }
-  .login-logo { width: 68px; margin-top: -46px; background: #fff; border-radius: 12px; padding: 6px; box-shadow: var(--shadow); position: relative; }
+  .login { grid-template-columns: 1fr; grid-template-rows: 27vh 1fr; }
+  .art-copy { display: none; }
+  .art-bus { width: 84%; bottom: 30px; }
+  .art-road { height: 40px; } .art-road::after { top: 18px; }
+  .login-card { align-self: start; padding: 20px 0 28px; gap: 14px; }
+  .login-logo { width: 60px; }
   .login-card h1 { font-size: 24px; }
   body { overflow: auto; } .login { height: auto; min-height: 100%; }
 
@@ -228,3 +234,4 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
   .chips { padding-top: 10px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+.pill.dir { background: #eef2f7; color: #3b4a5e; margin-left: 4px; }

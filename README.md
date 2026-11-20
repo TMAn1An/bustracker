@@ -1,46 +1,47 @@
-# IUBAT বাস ট্র্যাকার
+# IUBAT Bus Tracker
 
-স্টুডেন্টরা লগইন করে ৩D ম্যাপে বাসের লাইভ লোকেশন, কোথা থেকে → কোথায় এবং পৌঁছানোর সময় দেখে।
+Students sign in and see live bus locations on a 3D map: bus number, where it is coming from / going to (both
+inbound to campus and outbound from campus), and the estimated arrival time. Admins manage buses, routes and stops.
 
 ```
-বাসের অ্যান্ড্রয়েড ফোন ──(GPS, ৩+ সেকেন্ডে একবার)──▶ /api/track ──▶ Turso (প্রতি বাসে ১ সারি)
-স্টুডেন্টের ব্রাউজার ◀──(৪ সেকেন্ডে একবার poll)── /api/buses ◀──┘
-                         ম্যাপ: MapLibre + OpenFreeMap (OSM ডেটা, ফ্রি, কী লাগে না)
+Bus phone (Android) --GPS every 3+ s--> /api/track --> Turso (one row per bus)
+Student browser <--poll every 4 s-- /api/buses <--------┘
+Admin dashboard  --> /api/admin  (bus numbers, routes, stops, tracker tokens)
+Map: MapLibre + OpenFreeMap (OpenStreetMap data, free, no API key). Route snapping: OSRM.
 ```
 
-## লোকালি চালানো
+## Run locally
 ```sh
 npm install
-npm run routes      # (একবার, ঐচ্ছিক) data/routes.json নতুন করে বানায় — OSRM লাগে
-npm run seed        # local.db + ডেমো স্টুডেন্ট (2025001 / demo1234) + বাস-টোকেন (.bus-tokens.json)
-npm run dev         # http://localhost:3000
-npm run simulate    # আরেক টার্মিনালে: আসল ফোনের মতো ভুয়া GPS পাঠায়
+npm run seed        # local.db + Rajendrapur route / Bus 11 + demo logins + tracker token (.bus-tokens.json)
+npm run dev         # http://localhost:3000   (admin: /admin/)
+npm run simulate    # another terminal: fake GPS from the bus phones, driving both directions
+```
+Demo logins: student `2025001` / `demo1234`, admin `admin` / `admin1234` (never use `seed` demo data in production).
+
+## Pages
+| Path | What |
+|---|---|
+| `/` | Student app (sign in, bus list, bus detail, 3D map) |
+| `/admin/` | Admin dashboard: **Buses** (number, route, tracker token) and **Routes** (stops on a map, saved snapped to roads) |
+| `/tracker/` | Lightweight page for the bus phone (geolocation + wake lock). Or use the **Traccar Client** app: Server URL `https://<site>/api/osmand`, device identifier = bus token |
+
+## Admin: how to set up a bus
+1. **Routes → New route**: name it, search/click the map to add stops *in driving order from the far end*; the route always ends at IUBAT Campus. Save.
+2. **Buses → Add bus**: enter the bus number, pick the route. A **tracker token** is shown once; open the link on the bus phone.
+3. Changing a bus number or route in the table takes effect in student apps within a few seconds (no reload).
+
+Route stops currently only include the **start point** of Rajendrapur (Bus 11); add the stoppages in the admin dashboard.
+
+## Production (Vercel + Turso)
+Env vars: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `SESSION_SECRET` (long random string).
+```sh
+node db/seed.js --no-demo                     # tables, Rajendrapur route, Bus 11 (+ token in .bus-tokens.json)
+node db/seed.js --admin <username> <password> # create an admin (8+ chars)
+node db/seed.js --students students.csv       # columns: id,name,password
 ```
 
-## ফাইল
-| পথ | কাজ |
-|---|---|
-| `index.html`, `css/`, `js/` | স্টুডেন্ট অ্যাপ/ওয়েব (লগইন, তালিকা, ডিটেইল, ৩D ম্যাপ) |
-| `js/feed.js` | সার্ভার থেকে লোকেশন নেয়; রুটে মিলিয়ে দিক/অগ্রগতি/ETA |
-| `js/map.js` | MapLibre ৩D ম্যাপ, ৩D বাস, রুট হাইলাইট |
-| `tracker/` | বাসের ফোনের ট্র্যাকার পেজ (হালকা, APK লাগে না) |
-| `api/` | `login`, `buses`, `track`, `osmand` (Traccar Client সাপোর্ট) |
-| `data/routes.json` | রুট, স্টপ, রাস্তার জিওমেট্রি — **স্টপের কোঅর্ডিনেট এখন প্লেসহোল্ডার** |
-| `db/seed.js` | টেবিল তৈরি, ডেমো ডেটা, স্টুডেন্ট CSV ইম্পোর্ট |
-
-## বাসের ফোন সেটআপ
-১. ফোনে Chrome খুলে `https://<সাইট>/tracker/` যান, অ্যাডমিনের দেওয়া **বাস-টোকেন** দিন (একবার)।
-২. "শুরু করুন" চাপুন, লোকেশনের অনুমতি দিন। ফোন চার্জে রাখুন।
-৩. ব্রাউজার পেজ স্ক্রিন-অন অবস্থায় GPS দেয় (Wake Lock ব্যবহার হয়)। **স্ক্রিন বন্ধ থাকলেও** চালাতে চাইলে Play Store-এর
-   **Traccar Client** ব্যবহার করুন: Server URL = `https://<সাইট>/api/osmand`, Device identifier = বাস-টোকেন।
-
-## প্রোডাকশন (Vercel + Turso)
-Environment variables: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `SESSION_SECRET` (লম্বা র‍্যান্ডম স্ট্রিং)।
-একবার `TURSO_*` সেট করে `node db/seed.js` চালান (টেবিল + বাস-টোকেন), তারপর স্টুডেন্ট ইম্পোর্ট:
-`node db/seed.js --students students.csv` (কলাম: `id,name,password`)।
-
-## জানা সীমাবদ্ধতা / পরের কাজ
-- স্টপের নাম/কোঅর্ডিনেট আনুমানিক — আসলগুলো `scripts/build-routes.js`-এ বসিয়ে `npm run routes`।
-- লগইনে ব্রুট-ফোর্স সীমা (rate limit) নেই — প্রোডাকশনের আগে যোগ করা দরকার।
-- স্টুডেন্টের আসল আইডি/পাসওয়ার্ড কোথা থেকে আসবে (CSV ইম্পোর্ট, নাকি ইউনিভার্সিটির সিস্টেম) — সিদ্ধান্ত বাকি।
-- বাস ফোনের ব্রাউজার ট্র্যাকার ব্যাকগ্রাউন্ডে থামতে পারে (উপরে দেখুন)।
+## Known limitations / next
+- No login rate-limiting yet (add before launch).
+- Where student IDs/passwords come from (CSV import vs. university system) is still to be decided.
+- A browser page on the bus phone can be paused by Android when the screen is off; keep it charging with screen on, or use Traccar Client.

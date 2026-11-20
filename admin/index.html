@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#0b6e1c">
+  <title>IUBAT Bus Tracker · Admin</title>
+  <link rel="icon" href="../assets/logo.png">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="../css/style.css">
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body class="admin">
+
+<main id="signin" class="a-signin">
+  <form id="signinForm" class="a-card a-signin-card">
+    <img src="../assets/logo.png" alt="IUBAT" width="64">
+    <h1>Admin sign in</h1>
+    <p class="muted">Manage buses, routes and stops.</p>
+    <label class="field"><span>Username</span><input id="au" autocomplete="username" required></label>
+    <label class="field"><span>Password</span><input id="ap" type="password" autocomplete="current-password" required></label>
+    <p id="aerr" class="err" hidden></p>
+    <button class="btn primary">Sign in</button>
+  </form>
+</main>
+
+<div id="adminApp" hidden>
+  <header class="topbar">
+    <div class="brand"><img src="../assets/logo.png" alt=""><div><strong>IUBAT Bus Tracker</strong><small>Admin dashboard</small></div></div>
+    <div class="top-right">
+      <nav class="tabs" role="tablist">
+        <button role="tab" data-tab="buses" aria-selected="true">Buses</button>
+        <button role="tab" data-tab="routes" aria-selected="false">Routes</button>
+      </nav>
+      <button class="ghost light" id="aout">Sign out</button>
+    </div>
+  </header>
+
+  <!-- Buses -->
+  <section id="tab-buses" class="a-page">
+    <div class="a-head">
+      <div><h2>Buses</h2><p class="muted">Set each bus number and the route it runs. Each bus phone uses its own tracker token.</p></div>
+      <form id="addBus" class="a-inline">
+        <input id="newBusNo" placeholder="Bus no. (e.g. 12)" maxlength="10" required aria-label="New bus number">
+        <select id="newBusRoute" aria-label="Route"></select>
+        <button class="btn primary sm">Add bus</button>
+      </form>
+    </div>
+    <div class="a-card a-table-wrap">
+      <table class="a-table">
+        <thead><tr><th>Bus no.</th><th>Route</th><th>Last seen</th><th class="r">Actions</th></tr></thead>
+        <tbody id="busRows"></tbody>
+      </table>
+      <p id="busEmpty" class="muted a-empty" hidden>No buses yet. Add one above.</p>
+    </div>
+  </section>
+
+  <!-- Routes -->
+  <section id="tab-routes" class="a-page a-routes" hidden>
+    <aside class="a-card a-rlist">
+      <div class="a-rlist-head"><strong>Routes</strong><button class="btn primary sm" id="newRoute">+ New route</button></div>
+      <ul id="routeList"></ul>
+    </aside>
+
+    <div class="a-editor">
+      <div class="a-card a-form" id="routeForm" hidden>
+        <div class="a-row">
+          <label class="field grow"><span>Route name</span><input id="rName" maxlength="60" placeholder="e.g. Rajendrapur"></label>
+          <label class="field"><span>Line colour</span><input id="rColor" type="color" value="#0b6e1c"></label>
+        </div>
+        <p class="muted small">Add stops in driving order, starting from the far end. Click the map to drop a stop, drag a marker to move it. The route always ends at IUBAT Campus.</p>
+        <ol id="stopList" class="a-stops"></ol>
+        <div class="a-row end">
+          <button class="btn ghost-btn" id="delRoute" type="button">Delete route</button>
+          <span class="grow"></span>
+          <span id="rMsg" class="small muted"></span>
+          <button class="btn primary" id="saveRoute" type="button">Save route</button>
+        </div>
+      </div>
+      <p id="routeHint" class="muted a-empty">Select a route on the left, or create a new one.</p>
+      <div class="a-mapbox"><div id="amap"></div>
+        <form id="placeSearch" class="a-search"><input id="placeQ" placeholder="Search a place (e.g. Board Bazar)" aria-label="Search a place"><button class="btn primary sm">Search</button></form>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- Token dialog -->
+<dialog id="tokDlg" class="a-dlg">
+  <form method="dialog">
+    <h3 id="tokTitle">Tracker token</h3>
+    <p class="muted small">Shown <b>only once</b>. Open the link on the bus phone (or paste the token into the tracker page) to start sharing location. Generating a new token disables the old one.</p>
+    <label class="field"><span>Token</span><input id="tokVal" readonly></label>
+    <label class="field"><span>Tracker link</span><input id="tokLink" readonly></label>
+    <div class="a-row end"><button type="button" class="btn ghost-btn" id="tokCopy">Copy link</button><button class="btn primary">Done</button></div>
+  </form>
+</dialog>
+
+<div id="toast" class="a-toast" role="status" hidden></div>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="admin.js"></script>
+</body>
+</html>

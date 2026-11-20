@@ -1,38 +1,47 @@
-// ডেমো ডেটা তৈরি: node db/seed.js            (লোকাল ফাইল DB)
-// প্রোডাকশন:     TURSO_DATABASE_URL=... TURSO_AUTH_TOKEN=... node db/seed.js
-// স্টুডেন্ট ইম্পোর্ট: node db/seed.js --students students.csv   (কলাম: id,name,password)
+// Local demo data:      node db/seed.js
+// Production:           TURSO_DATABASE_URL=... TURSO_AUTH_TOKEN=... node db/seed.js --no-demo
+// Import students:      node db/seed.js --students students.csv      (columns: id,name,password)
+// Create/reset admin:   node db/seed.js --admin <username> <password>
 import { readFileSync, writeFileSync } from 'node:fs';
-import { db, SCHEMA, hashPassword, sha256 } from '../api/_lib.js';
 import { randomBytes } from 'node:crypto';
+import { db, SCHEMA, hashPassword, sha256, buildGeometry, bumpRev } from '../api/_lib.js';
 
 const c = db();
 for (const sql of SCHEMA) await c.execute(sql);
 const args = process.argv.slice(2);
+const after = f => args[args.indexOf(f) + 1];
 
-const csv = args[args.indexOf('--students') + 1];
-if (args.includes('--students') && csv) {
-  const rows = readFileSync(csv, 'utf8').split(/\r?\n/).filter(Boolean).slice(1).map(l => l.split(','));
+if (args.includes('--students')) {
+  const rows = readFileSync(after('--students'), 'utf8').split(/\r?\n/).filter(Boolean).slice(1).map(l => l.split(','));
   for (const [id, name, pw] of rows) {
     await c.execute({ sql: 'INSERT INTO students (id,name,pass) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, pass=excluded.pass', args: [id.trim(), (name || '').trim(), hashPassword(pw.trim())] });
   }
-  console.log(rows.length + ' জন স্টুডেন্ট ইম্পোর্ট হয়েছে');
-  process.exit(0);
+  console.log(`${rows.length} students imported`); process.exit(0);
+}
+if (args.includes('--admin')) {
+  const [u, p] = [after('--admin'), args[args.indexOf('--admin') + 2]];
+  if (!u || !p || p.length < 8) { console.error('Usage: --admin <username> <password (8+ chars)>'); process.exit(1); }
+  await c.execute({ sql: 'INSERT INTO admins (username,pass) VALUES (?,?) ON CONFLICT(username) DO UPDATE SET pass=excluded.pass', args: [u, hashPassword(p)] });
+  console.log('Admin saved:', u); process.exit(0);
 }
 
-// ডেমো স্টুডেন্ট
-await c.execute({ sql: 'INSERT INTO students (id,name,pass) VALUES (?,?,?) ON CONFLICT(id) DO NOTHING', args: ['2025001', 'ডেমো স্টুডেন্ট', hashPassword('demo1234')] });
-// প্রতি বাসের জন্য ট্র্যাকার টোকেন (শুধু একবার দেখানো হয়)
-const routes = JSON.parse(readFileSync(new URL('../data/routes.json', import.meta.url))).routes;
-const tokens = {};
-for (const r of routes) {
-  const ex = await c.execute({ sql: 'SELECT id FROM buses WHERE id=?', args: [r.busId] });
-  if (ex.rows[0]) continue;
+// ---- starter data: the Rajendrapur route / Bus 11 (stops are added later from the admin dashboard) ----
+const hasRoute = (await c.execute(`SELECT id FROM routes WHERE id='rajendrapur'`)).rows[0];
+if (!hasRoute) {
+  const stops = [{ name: 'Rajendrapur Chowrastha', lat: 24.09537, lng: 90.40187 }];
+  const g = await buildGeometry(stops);
+  await c.execute({ sql: 'INSERT INTO routes (id,name,color,stops,geometry,updated_at) VALUES (?,?,?,?,?,?)', args: ['rajendrapur', 'Rajendrapur', '#0b6e1c', JSON.stringify(stops), JSON.stringify(g.geometry), Date.now()] });
+  console.log(`Route "Rajendrapur" created (${g.snapped ? 'road-snapped' : 'straight-line fallback'})`);
+}
+if (!(await c.execute(`SELECT id FROM buses WHERE id='11'`)).rows[0]) {
   const t = randomBytes(18).toString('base64url');
-  await c.execute({ sql: 'INSERT INTO buses (id, token_hash) VALUES (?,?)', args: [r.busId, sha256(t)] });
-  tokens[r.busId] = t;
+  await c.execute({ sql: 'INSERT INTO buses (id, route_id, token_hash) VALUES (?,?,?)', args: ['11', 'rajendrapur', sha256(t)] });
+  writeFileSync(new URL('../.bus-tokens.json', import.meta.url), JSON.stringify({ 11: t }, null, 1));
+  console.log('Bus 11 created. Tracker token saved to .bus-tokens.json (git-ignored)');
 }
-if (Object.keys(tokens).length) {
-  writeFileSync(new URL('../.bus-tokens.json', import.meta.url), JSON.stringify(tokens, null, 1));
-  console.log('নতুন বাস-টোকেন .bus-tokens.json এ সেভ হয়েছে (গিটে যাবে না)');
+if (!args.includes('--no-demo')) {
+  await c.execute({ sql: 'INSERT INTO students (id,name,pass) VALUES (?,?,?) ON CONFLICT(id) DO NOTHING', args: ['2025001', 'Demo Student', hashPassword('demo1234')] });
+  await c.execute({ sql: 'INSERT INTO admins (username,pass) VALUES (?,?) ON CONFLICT(username) DO NOTHING', args: ['admin', hashPassword('admin1234')] });
+  console.log('Demo logins -> student: 2025001 / demo1234   admin: admin / admin1234');
 }
-console.log('ডেমো লগইন: 2025001 / demo1234');
+await bumpRev();
