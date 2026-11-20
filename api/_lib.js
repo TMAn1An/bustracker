@@ -42,12 +42,17 @@ const MIGRATIONS = [
   `ALTER TABLE positions ADD COLUMN source TEXT`,     // 'device' (bus phone) or 'crowd' (verified student on board)
 ];
 
+// Bump SCHEMA_V whenever SCHEMA or MIGRATIONS change.
+const SCHEMA_V = '4';
 // Create any missing tables once per serverless instance (cheap: CREATE TABLE IF NOT EXISTS).
 let _schema;
 export function ensureSchema() {
   return (_schema ||= (async () => {
+    // Fast path: one query when the database is already up to date.
+    try { const r = await db().execute(`SELECT value FROM settings WHERE key = 'schema_v'`); if (r.rows[0]?.value === SCHEMA_V) return; } catch { /* settings table missing: first run */ }
     await db().batch(SCHEMA, 'write');
     for (const m of MIGRATIONS) { try { await db().execute(m); } catch (e) { if (!/duplicate column/i.test(e.message)) throw e; } }
+    await db().execute({ sql: `INSERT INTO settings (key,value) VALUES ('schema_v',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, args: [SCHEMA_V] });
   })().catch(e => { _schema = null; throw e; }));
 }
 
