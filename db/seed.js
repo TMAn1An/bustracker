@@ -1,5 +1,5 @@
 // Local demo data:      node db/seed.js
-// Production:           TURSO_DATABASE_URL=... TURSO_AUTH_TOKEN=... node db/seed.js --no-demo
+// Production:           TURSO_DATABASE_URL=... TURSO_AUTH_TOKEN=... node db/seed.js --no-demo   (no demo admin; dummy student is still created)
 // Import students:      node db/seed.js --students students.csv      (columns: id,name,password)
 // Create/reset admin:   node db/seed.js --admin <username> <password>
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -39,9 +39,13 @@ if (!(await c.execute(`SELECT id FROM buses WHERE id='11'`)).rows[0]) {
   writeFileSync(new URL('../.bus-tokens.json', import.meta.url), JSON.stringify({ 11: t }, null, 1));
   console.log('Bus 11 created. Tracker token saved to .bus-tokens.json (git-ignored)');
 }
+// Dummy student account (kept until the university's student database is connected).
+// Override with DUMMY_STUDENT_ID / DUMMY_STUDENT_PASSWORD.
+const dId = process.env.DUMMY_STUDENT_ID || '2025001', dPw = process.env.DUMMY_STUDENT_PASSWORD || 'demo1234';
+await c.execute({ sql: 'INSERT INTO students (id,name,pass) VALUES (?,?,?) ON CONFLICT(id) DO NOTHING', args: [dId, 'Dummy Student', hashPassword(dPw)] });
+console.log(`Dummy student -> ${dId} / ${process.env.DUMMY_STUDENT_PASSWORD ? '(from env)' : dPw}`);
 if (!args.includes('--no-demo')) {
-  await c.execute({ sql: 'INSERT INTO students (id,name,pass) VALUES (?,?,?) ON CONFLICT(id) DO NOTHING', args: ['2025001', 'Demo Student', hashPassword('demo1234')] });
   await c.execute({ sql: 'INSERT INTO admins (username,pass) VALUES (?,?) ON CONFLICT(username) DO NOTHING', args: ['admin', hashPassword('admin1234')] });
-  console.log('Demo logins -> student: 2025001 / demo1234   admin: admin / admin1234');
+  console.log('Demo admin -> admin / admin1234 (local only; use --no-demo and --admin in production)');
 }
 await bumpRev();

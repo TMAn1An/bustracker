@@ -17,7 +17,8 @@ npm run seed        # local.db + Rajendrapur route / Bus 11 + demo logins + trac
 npm run dev         # http://localhost:3000   (admin: /admin/)
 npm run simulate    # another terminal: fake GPS from the bus phones, driving both directions
 ```
-Demo logins: student `2025001` / `demo1234`, admin `admin` / `admin1234` (never use `seed` demo data in production).
+Dummy student login: `2025001` / `demo1234` (temporary, until the university's student database is connected).
+Demo admin (local only): `admin` / `admin1234`.
 
 ## Pages
 | Path | What |
@@ -36,12 +37,12 @@ Route stops currently only include the **start point** of Rajendrapur (Bus 11); 
 ## Production (Vercel + Turso)
 Env vars: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `SESSION_SECRET` (long random string).
 ```sh
-node db/seed.js --no-demo                     # tables, Rajendrapur route, Bus 11 (+ token in .bus-tokens.json)
+node db/seed.js --no-demo                     # tables, Rajendrapur route, Bus 11 (+ token in .bus-tokens.json), dummy student (override with DUMMY_STUDENT_ID / DUMMY_STUDENT_PASSWORD)
 node db/seed.js --admin <username> <password> # create an admin (8+ chars)
 node db/seed.js --students students.csv       # columns: id,name,password
 ```
 
 ## Known limitations / next
 - No login rate-limiting yet (add before launch).
-- Where student IDs/passwords come from (CSV import vs. university system) is still to be decided.
+- Student login uses a **dummy account** for now. When the university provides its student database, only `verifyStudent()` in `api/_students.js` needs to change (nothing else depends on where students are stored).
 - A browser page on the bus phone can be paused by Android when the screen is off; keep it charging with screen on, or use Traccar Client.
