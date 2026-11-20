@@ -24,7 +24,12 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS positions (bus_id TEXT PRIMARY KEY, lat REAL NOT NULL, lng REAL NOT NULL,
      speed REAL, heading REAL, acc REAL, ts INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`,
+  `CREATE TABLE IF NOT EXISTS login_attempts (key TEXT PRIMARY KEY, fails INTEGER NOT NULL, locked_until INTEGER NOT NULL, last INTEGER NOT NULL)`,
 ];
+
+// Create any missing tables once per serverless instance (cheap: CREATE TABLE IF NOT EXISTS).
+let _schema;
+export function ensureSchema() { return (_schema ||= db().batch(SCHEMA, 'write').catch(e => { _schema = null; throw e; })); }
 
 /** Bump the config revision so clients reload routes/buses. */
 export async function bumpRev() {

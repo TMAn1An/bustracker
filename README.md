@@ -34,7 +34,12 @@ Demo admin (local only): `admin` / `admin1234`.
 
 Route stops currently only include the **start point** of Rajendrapur (Bus 11); add the stoppages in the admin dashboard.
 
+## Login protection
+5 wrong passwords on one account lock it for 5 minutes (the wait doubles on further failures, max 60 min); 20 failures from one IP lock that IP the same way. A correct login resets the counter.
+
 ## Production (Vercel + Turso)
+The Vercel project is connected to this GitHub repo: every push to `ccr-31ad4227-axu7x6` deploys to production automatically.
+
 Env vars: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `SESSION_SECRET` (long random string).
 ```sh
 node db/seed.js --no-demo                     # tables, Rajendrapur route, Bus 11 (+ token in .bus-tokens.json), dummy student (override with DUMMY_STUDENT_ID / DUMMY_STUDENT_PASSWORD)
@@ -43,6 +48,5 @@ node db/seed.js --students students.csv       # columns: id,name,password
 ```
 
 ## Known limitations / next
-- No login rate-limiting yet (add before launch).
 - Student login uses **one dummy account** for the prototype (`--remove-dummy` deletes it). When the university provides its student database, only `verifyStudent()` in `api/_students.js` needs to change (nothing else depends on where students are stored).
 - A browser page on the bus phone can be paused by Android when the screen is off; keep it charging with screen on, or use Traccar Client.
