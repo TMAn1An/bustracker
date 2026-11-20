@@ -17,7 +17,7 @@ npm run seed        # local.db + Rajendrapur route / Bus 11 + demo logins + trac
 npm run dev         # http://localhost:3000   (admin: /admin/)
 npm run simulate    # another terminal: fake GPS from the bus phones, driving both directions
 ```
-Dummy student login: `2025001` / `demo1234` (temporary, until the university's student database is connected).
+One dummy student login (`2025001` / `demo1234` locally) exists only to view the prototype. Remove it with `node db/seed.js --remove-dummy`.
 Demo admin (local only): `admin` / `admin1234`.
 
 ## Pages
@@ -44,5 +44,5 @@ node db/seed.js --students students.csv       # columns: id,name,password
 
 ## Known limitations / next
 - No login rate-limiting yet (add before launch).
-- Student login uses a **dummy account** for now. When the university provides its student database, only `verifyStudent()` in `api/_students.js` needs to change (nothing else depends on where students are stored).
+- Student login uses **one dummy account** for the prototype (`--remove-dummy` deletes it). When the university provides its student database, only `verifyStudent()` in `api/_students.js` needs to change (nothing else depends on where students are stored).
 - A browser page on the bus phone can be paused by Android when the screen is off; keep it charging with screen on, or use Traccar Client.

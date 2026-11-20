@@ -2,6 +2,7 @@
 // Production:           TURSO_DATABASE_URL=... TURSO_AUTH_TOKEN=... node db/seed.js --no-demo   (no demo admin; dummy student is still created)
 // Import students:      node db/seed.js --students students.csv      (columns: id,name,password)
 // Create/reset admin:   node db/seed.js --admin <username> <password>
+// Remove dummy student: node db/seed.js --remove-dummy
 import { readFileSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { db, SCHEMA, hashPassword, sha256, buildGeometry, bumpRev } from '../api/_lib.js';
@@ -17,6 +18,10 @@ if (args.includes('--students')) {
     await c.execute({ sql: 'INSERT INTO students (id,name,pass) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name, pass=excluded.pass', args: [id.trim(), (name || '').trim(), hashPassword(pw.trim())] });
   }
   console.log(`${rows.length} students imported`); process.exit(0);
+}
+if (args.includes('--remove-dummy')) {
+  const r = await c.execute({ sql: `DELETE FROM students WHERE name = 'Dummy Student'` });
+  console.log(`Removed ${r.rowsAffected} dummy student account(s)`); process.exit(0);
 }
 if (args.includes('--admin')) {
   const [u, p] = [after('--admin'), args[args.indexOf('--admin') + 2]];
@@ -39,10 +44,11 @@ if (!(await c.execute(`SELECT id FROM buses WHERE id='11'`)).rows[0]) {
   writeFileSync(new URL('../.bus-tokens.json', import.meta.url), JSON.stringify({ 11: t }, null, 1));
   console.log('Bus 11 created. Tracker token saved to .bus-tokens.json (git-ignored)');
 }
-// Dummy student account (kept until the university's student database is connected).
+// ONE dummy student account, only so the prototype can be viewed. Remove it with --remove-dummy.
 // Override with DUMMY_STUDENT_ID / DUMMY_STUDENT_PASSWORD.
 const dId = process.env.DUMMY_STUDENT_ID || '2025001', dPw = process.env.DUMMY_STUDENT_PASSWORD || 'demo1234';
-await c.execute({ sql: 'INSERT INTO students (id,name,pass) VALUES (?,?,?) ON CONFLICT(id) DO NOTHING', args: [dId, 'Dummy Student', hashPassword(dPw)] });
+await c.execute({ sql: `DELETE FROM students WHERE name = 'Dummy Student' AND id <> ?`, args: [dId] }); // keep only one
+await c.execute({ sql: 'INSERT INTO students (id,name,pass) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET pass=excluded.pass', args: [dId, 'Dummy Student', hashPassword(dPw)] });
 console.log(`Dummy student -> ${dId} / ${process.env.DUMMY_STUDENT_PASSWORD ? '(from env)' : dPw}`);
 if (!args.includes('--no-demo')) {
   await c.execute({ sql: 'INSERT INTO admins (username,pass) VALUES (?,?) ON CONFLICT(username) DO NOTHING', args: ['admin', hashPassword('admin1234')] });
