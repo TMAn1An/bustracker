@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="bn">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b7a1c">
+  <title>IUBAT বাস ট্র্যাকার</title>
+  <link rel="icon" href="assets/logo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ============ লগইন ============ -->
+<main id="login" class="login">
+  <section class="login-art" aria-hidden="true">
+    <img src="assets/bus.jpg" alt="">
+    <div class="art-shade"></div>
+    <div class="art-copy">
+      <span class="art-tag">ক্যাম্পাস বাস · লাইভ</span>
+      <h2>আপনার বাস এখন কোথায়?<br>এক নজরে দেখুন।</h2>
+      <p>বাস নম্বর, গন্তব্য ও পৌঁছানোর সময় — রিয়েল টাইমে, ৩D ম্যাপে।</p>
+    </div>
+  </section>
+
+  <form id="loginForm" class="login-card" autocomplete="on" novalidate>
+    <img class="login-logo" src="assets/logo.png" alt="IUBAT লোগো">
+    <h1>বাস ট্র্যাকার</h1>
+    <p class="sub">International University of Business Agriculture and Technology</p>
+
+    <label class="field">
+      <span>স্টুডেন্ট আইডি</span>
+      <input id="sid" name="username" inputmode="numeric" autocomplete="username" placeholder="যেমন: 2025001" required>
+    </label>
+    <label class="field">
+      <span>পাসওয়ার্ড</span>
+      <div class="pw">
+        <input id="pw" name="password" type="password" autocomplete="current-password" placeholder="••••••••" required>
+        <button type="button" id="pwToggle" class="ghost" aria-label="পাসওয়ার্ড দেখান">দেখুন</button>
+      </div>
+    </label>
+    <p id="loginErr" class="err" role="alert" hidden></p>
+    <button class="btn primary" type="submit">লগইন করুন</button>
+    <p class="hint">ডেমো মোড · যেকোনো আইডি ও ৪+ অক্ষরের পাসওয়ার্ড চলবে</p>
+  </form>
+</main>
+
+<!-- ============ অ্যাপ ============ -->
+<div id="app" class="app" hidden>
+  <header class="topbar">
+    <div class="brand">
+      <img src="assets/logo.png" alt="">
+      <div><strong>IUBAT বাস ট্র্যাকার</strong><small>ক্যাম্পাস বাস · লাইভ লোকেশন</small></div>
+    </div>
+    <div class="top-right">
+      <span class="live"><i></i> লাইভ</span>
+      <span class="user" id="userChip">ID</span>
+      <button class="ghost light" id="logout">লগআউট</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="panel" id="panel">
+      <button class="handle" id="handle" aria-label="প্যানেল খুলুন বা বন্ধ করুন"><span></span></button>
+      <div class="chips" id="chips" role="tablist" aria-label="বাস নম্বর"></div>
+      <div class="panel-body" id="panelBody"></div>
+    </aside>
+
+    <section class="stage">
+      <canvas id="map" aria-label="৩D বাস ম্যাপ"></canvas>
+
+      <div class="tools" role="toolbar" aria-label="ম্যাপ কন্ট্রোল">
+        <button id="tView" class="tool wide" title="৩D / ২D">৩D</button>
+        <button id="tRotL" class="tool" title="বামে ঘোরান" aria-label="বামে ঘোরান">⟲</button>
+        <button id="tRotR" class="tool" title="ডানে ঘোরান" aria-label="ডানে ঘোরান">⟳</button>
+        <button id="tZin" class="tool" title="জুম ইন" aria-label="জুম ইন">+</button>
+        <button id="tZout" class="tool" title="জুম আউট" aria-label="জুম আউট">−</button>
+        <button id="tLoc" class="tool" title="বাসে ফোকাস" aria-label="বাসে ফোকাস">◎</button>
+      </div>
+
+      <div class="legend">
+        <span><i class="dot run"></i> চলছে</span>
+        <span><i class="dot stop"></i> স্টপে</span>
+        <span><i class="dot off"></i> অফলাইন</span>
+      </div>
+      <div class="demo-note">ডেমো ডেটা · সিমুলেটেড</div>
+    </section>
+  </div>
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/map3d.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
