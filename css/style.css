@@ -196,8 +196,7 @@ button { font: inherit; cursor: pointer; }
 
 /* ---------- স্টেজ / ম্যাপ ---------- */
 .stage { position: relative; min-width: 0; min-height: 0; background: #e8f1e2; overflow: hidden; }
-#map { position: absolute; inset: 0; display: block; touch-action: none; cursor: grab; }
-#map:active { cursor: grabbing; }
+#map { position: absolute; inset: 0; }
 .tools { position: absolute; right: 14px; top: 14px; display: flex; flex-direction: column; gap: 8px; }
 .tool {
   width: 44px; height: 44px; border-radius: 12px; border: 0; background: #fff; color: var(--ink);
@@ -210,7 +209,24 @@ button { font: inherit; cursor: pointer; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .dot.run { background: var(--ok); } .dot.stop { background: var(--yellow-600); border: 1.5px solid var(--ink); } .dot.off { background: var(--off); }
-.demo-note { position: absolute; right: 14px; bottom: 14px; font-size: 12px; font-weight: 700; background: var(--ink); color: #fff; padding: 5px 11px; border-radius: 999px; opacity: .8; }
+.conn { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); z-index: 2; font-size: 13px; font-weight: 700; background: var(--red); color: #fff; padding: 7px 14px; border-radius: 999px; box-shadow: var(--shadow); white-space: nowrap; }
+
+/* ---------- ম্যাপ মার্কার ---------- */
+.bus-pin { all: unset; cursor: pointer; display: block; position: relative; }
+.bus-pin b { display: block; min-width: 34px; text-align: center; padding: 3px 10px; font: 800 15px/1.2 var(--font); color: var(--ink);
+  background: var(--yellow); border: 2.5px solid var(--ink); border-radius: 999px; box-shadow: 0 3px 8px rgba(0,0,0,.3); }
+.bus-pin::after { content: ""; position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%); border: 6px solid transparent; border-top-color: var(--ink); border-bottom: 0; }
+.bus-pin.stopped b { background: #fff3a8; }
+.bus-pin.offline b { background: #d8dcd3; color: #6b7367; border-color: #8b928a; }
+.bus-pin.offline::after { border-top-color: #8b928a; }
+.bus-pin.sel b { font-size: 19px; padding: 4px 14px; border-color: var(--route, var(--green)); border-width: 3.5px; }
+.bus-pin.sel::before { content: ""; position: absolute; left: 50%; bottom: -26px; width: 18px; height: 18px; margin-left: -9px; border-radius: 50%; border: 3px solid var(--route, var(--green)); animation: pulse 1.6s infinite; }
+@keyframes pulse { from { transform: scale(.6); opacity: 1; } to { transform: scale(2.6); opacity: 0; } }
+.stop-pill { font: 600 12px/1 var(--font); background: #fff; color: var(--ink); padding: 5px 10px; border-radius: 999px; border: 2px solid var(--route); box-shadow: 0 2px 6px rgba(0,0,0,.2); white-space: nowrap; pointer-events: none; }
+.campus-pin { display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+.campus-pin img { width: 54px; background: #fff; border: 3px solid var(--green); border-radius: 12px; padding: 3px; box-shadow: var(--shadow); }
+.campus-pin span { margin-top: 4px; font: 700 12px/1 var(--font); background: var(--green); color: #fff; padding: 4px 9px; border-radius: 999px; }
+.maplibregl-ctrl-attrib { font-size: 11px; }
 
 /* ---------- মোবাইল ---------- */
 @media (max-width: 860px) {
@@ -228,7 +244,7 @@ button { font: inherit; cursor: pointer; }
   .stage { position: absolute; inset: 0; }
   .tools { top: 10px; right: 10px; }
   .legend { display: none; }
-  .demo-note { top: 10px; left: 10px; right: auto; bottom: auto; }
+  .conn { top: 10px; }
 
   .panel {
     position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; border-right: 0;

@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -43,7 +44,7 @@
     </label>
     <p id="loginErr" class="err" role="alert" hidden></p>
     <button class="btn primary" type="submit">লগইন করুন</button>
-    <p class="hint">ডেমো মোড · যেকোনো আইডি ও ৪+ অক্ষরের পাসওয়ার্ড চলবে</p>
+    <p class="hint">ইউনিভার্সিটির স্টুডেন্ট আইডি ও পাসওয়ার্ড দিয়ে লগইন করুন</p>
   </form>
 </main>
 
@@ -69,7 +70,7 @@
     </aside>
 
     <section class="stage">
-      <canvas id="map" aria-label="৩D বাস ম্যাপ"></canvas>
+      <div id="map" role="application" aria-label="৩D বাস ম্যাপ"></div>
 
       <div class="tools" role="toolbar" aria-label="ম্যাপ কন্ট্রোল">
         <button id="tView" class="tool wide" title="৩D / ২D">৩D</button>
@@ -85,13 +86,14 @@
         <span><i class="dot stop"></i> স্টপে</span>
         <span><i class="dot off"></i> অফলাইন</span>
       </div>
-      <div class="demo-note">ডেমো ডেটা · সিমুলেটেড</div>
+      <div class="conn" id="conn" hidden>⚠ সংযোগ নেই — আবার চেষ্টা করছে…</div>
     </section>
   </div>
 </div>
 
-<script src="js/data.js"></script>
-<script src="js/map3d.js"></script>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="js/feed.js"></script>
+<script src="js/map.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b7a1c">
+<title>বাস ট্র্যাকার · ড্রাইভার ফোন</title>
+<link rel="icon" href="../assets/logo.png">
+<style>
+  :root { --green:#0b7a1c; --yellow:#ffd500; --red:#e2231a; --ink:#14201a; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; font-family:"Hind Siliguri","Noto Sans Bengali",system-ui,sans-serif; background:var(--green); color:#fff; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:24px; text-align:center; }
+  img { width:72px; background:#fff; border-radius:14px; padding:6px; }
+  h1 { margin:0; font-size:22px; }
+  .bus { font-size:84px; font-weight:800; line-height:1; background:var(--yellow); color:var(--ink); border:6px solid var(--ink); border-radius:50%; width:150px; height:150px; display:grid; place-items:center; }
+  #st { font-size:20px; font-weight:700; min-height:30px; }
+  #meta { opacity:.9; font-size:15px; line-height:1.6; min-height:70px; }
+  button, input { font:inherit; border-radius:14px; border:0; padding:14px 22px; font-size:18px; font-weight:700; }
+  input { width:min(320px,100%); background:#fff; color:var(--ink); text-align:center; }
+  button { background:var(--yellow); color:var(--ink); border:3px solid var(--ink); width:min(320px,100%); }
+  button.stop { background:var(--red); color:#fff; border-color:#7d0f0a; }
+  small { opacity:.8; max-width:340px; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+  <img src="../assets/logo.png" alt="">
+  <h1>ড্রাইভার ফোন · লোকেশন পাঠানো</h1>
+
+  <form id="setup">
+    <p>অ্যাডমিনের দেওয়া বাস-টোকেন দিন (একবারই লাগবে)</p>
+    <input id="tok" placeholder="টোকেন" autocomplete="off" required><br><br>
+    <button>সেভ করুন</button>
+  </form>
+
+  <section id="run" hidden>
+    <div class="bus" id="busno">–</div><br>
+    <div id="st">বন্ধ আছে</div>
+    <div id="meta"></div><br>
+    <button id="go">▶ শুরু করুন</button><br><br>
+    <button id="reset" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.5);font-size:14px;padding:8px">টোকেন বদলান</button>
+  </section>
+  <small id="tip">টিপস: ফোন চার্জে রাখুন ও স্ক্রিন চালু রাখুন। স্ক্রিন বন্ধ করলে ব্রাউজার GPS থামিয়ে দিতে পারে।</small>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const KEY = 'iubat_bus_token', API = location.pathname.replace(/tracker\/?(index\.html)?$/, '') + 'api/track';
+  const MIN_GAP = 3000;             // কমপক্ষে ৩ সেকেন্ড পর পর পাঠাবে — ব্যাটারি ও ডেটা বাঁচাতে
+  let token = (() => { try { return localStorage.getItem(KEY); } catch { return null; } })();
+  const fromUrl = new URLSearchParams(location.search).get('key');
+  if (fromUrl) { token = fromUrl; try { localStorage.setItem(KEY, token); } catch {} history.replaceState(null, '', location.pathname); }
+
+  let watch = null, wake = null, last = 0, sent = 0, fails = 0, pending = null, timer = null;
+  const show = () => { $('#setup').hidden = !!token; $('#run').hidden = !token; };
+  $('#setup').onsubmit = e => { e.preventDefault(); token = $('#tok').value.trim(); try { localStorage.setItem(KEY, token); } catch {} show(); };
+  $('#reset').onclick = () => { stop(); token = null; try { localStorage.removeItem(KEY); } catch {} show(); };
+  $('#go').onclick = () => (watch === null ? start() : stop());
+
+  async function lock() { try { if ('wakeLock' in navigator) wake = await navigator.wakeLock.request('screen'); } catch {} }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && watch !== null) lock(); });
+
+  function start() {
+    if (!('geolocation' in navigator)) { $('#st').textContent = 'এই ব্রাউজারে GPS নেই'; return; }
+    lock();
+    $('#go').textContent = '■ থামান'; $('#go').classList.add('stop'); $('#st').textContent = 'GPS খুঁজছে…';
+    watch = navigator.geolocation.watchPosition(onFix, onErr, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
+    timer = setInterval(flush, 1000);
+  }
+  function stop() {
+    if (watch !== null) navigator.geolocation.clearWatch(watch); watch = null; clearInterval(timer);
+    try { wake && wake.release(); } catch {} wake = null;
+    $('#go').textContent = '▶ শুরু করুন'; $('#go').classList.remove('stop'); $('#st').textContent = 'বন্ধ আছে';
+  }
+  function onFix(p) { pending = p; flush(); }
+  function onErr(e) { $('#st').textContent = e.code === 1 ? 'লোকেশনের অনুমতি দিন' : 'GPS সিগন্যাল নেই'; }
+
+  async function flush() {
+    if (!pending || Date.now() - last < MIN_GAP) return;
+    const { coords: c, timestamp } = pending; pending = null; last = Date.now();
+    try {
+      const r = await fetch(API, { method: 'POST', headers: { 'content-type': 'application/json' }, keepalive: true,
+        body: JSON.stringify({ token, lat: c.latitude, lng: c.longitude, speed: c.speed ?? undefined, heading: c.heading ?? undefined, acc: c.accuracy, ts: timestamp }) });
+      if (r.status === 401) { $('#st').textContent = 'টোকেন ভুল!'; return; }
+      if (!r.ok) throw new Error(r.status);
+      sent++; fails = 0;
+      $('#st').textContent = '● লাইভ — পাঠানো হচ্ছে';
+      $('#meta').innerHTML = `পাঠানো: ${sent} বার · নির্ভুলতা ±${Math.round(c.accuracy)} মি.<br>গতি: ${c.speed != null ? Math.round(c.speed * 3.6) : '–'} কিমি/ঘ · ${new Date().toLocaleTimeString('bn-BD')}`;
+    } catch { fails++; $('#st').textContent = 'ইন্টারনেট সমস্যা — আবার চেষ্টা করছে…'; }
+  }
+  show();
+  // বাস নম্বর দেখাতে টোকেনের পাশের নম্বর API থেকে আনা যায়; আপাতত প্রথম সফল পাঠানোর পর দেখাবে না — সাধারণ ডিসপ্লে
+  $('#busno').textContent = '🚌';
+})();
+</script>
+</body>
+</html>
