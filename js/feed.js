@@ -33,7 +33,7 @@
   }
 
   const Feed = {
-    campus: null, routes: [], notices: [], rev: null, offset: 0, ok: true, onAuthFail: () => {}, onStatus: () => {}, onRoutes: () => {},
+    campus: null, routes: [], notices: [], crowdEnabled: false, rev: null, offset: 0, ok: true, onAuthFail: () => {}, onStatus: () => {}, onRoutes: () => {},
     state: new Map(), token: null, timer: null,
 
     /** Load routes and bus->route assignment (needs a signed-in token). Safe to call again when `rev` changes. */
@@ -54,6 +54,7 @@
         if (st.routeChanged && st.fix) { st.fix = null; st.disp = null; } // re-match on the next fix
       });
       this.state = next;
+      this.crowdEnabled = !!j.crowdEnabled;
       this.notices = (j.notices || []).map(n => ({ ...n, expiresLocal: n.expiresAt ? n.expiresAt - (j.now - Date.now()) : null }));
       this.onRoutes(this);
     },
@@ -157,7 +158,7 @@
         progress: Math.max(0, Math.min(1, (st.dir > 0 ? s : r.length - s) / r.length)),
         destEtaText: status === 'offline' ? '—' : fmtMin(destEta),
         nextEtaText: nextStop ? fmtMin(nextStop.etaMin) : '—',
-        atStop: here ? here.name : null, lastUpdateSec: Math.round(age), lng: f.lng, lat: f.lat };
+        atStop: here ? here.name : null, lastUpdateSec: Math.round(age), lng: f.lng, lat: f.lat, source: f.source || 'device' };
     },
   };
   window.Feed = Feed;

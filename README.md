@@ -35,6 +35,18 @@ Demo admin (local only): `admin` / `admin1234`.
 
 Route stops currently only include the **start point** of Rajendrapur (Bus 11); add the stoppages in the admin dashboard.
 
+## Crowd mode: students share the bus location
+A signed-in student on the bus can tap **Share location** on that bus's page. No extra bus device is needed; others then see the bus move.
+Every fix is checked on the server (`api/share.js`) before anyone else sees it:
+- GPS accuracy must be 60 m or better, and the phone must be within about 80 m of the route's road;
+- it must travel at least 400 m along the route over at least 90 s at vehicle speed (8–120 km/h), so sharing from home beside the highway never qualifies;
+- impossible jumps (over 120 km/h between fixes) are ignored; sitting still for 6 min (e.g. got off the bus) pauses the share;
+- with several riders, the one verified first wins and a newcomer more than 500 m away from it is ignored;
+- the official bus phone always has priority, and riders become a standby backup;
+- other students never see who is sharing; the admin **Sharing** tab shows sharers and can block them or switch the mode off.
+Limitation: a fake-GPS app that imitates a moving bus along the route cannot be fully detected from a web app; the rules above, first-verified-wins and admin blocking limit the damage.
+Test locally: `npm run dev`, then `node scripts/simulate-crowd.js` (five simulated riders: honest, at home, off route, jumping, conflicting).
+
 ## Login protection
 5 wrong passwords on one account lock it for 5 minutes (the wait doubles on further failures, max 60 min); 20 failures from one IP lock that IP the same way. A correct login resets the counter.
 

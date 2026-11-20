@@ -34,6 +34,7 @@
         <button role="tab" data-tab="buses" aria-selected="true">Buses</button>
         <button role="tab" data-tab="routes" aria-selected="false">Routes</button>
         <button role="tab" data-tab="notices" aria-selected="false">Notices</button>
+        <button role="tab" data-tab="sharing" aria-selected="false">Sharing</button>
       </nav>
       <button class="ghost light" id="aout">Sign out</button>
     </div>
@@ -85,6 +86,17 @@
         <form id="placeSearch" class="a-search"><input id="placeQ" placeholder="Search a place (e.g. Board Bazar)" aria-label="Search a place"><button class="btn primary sm">Search</button></form>
       </div>
     </div>
+  </section>
+
+  <!-- Sharing (crowd mode) -->
+  <section id="tab-sharing" class="a-page" hidden>
+    <div class="a-head"><div><h2>Student location sharing</h2><p class="muted">Riders on a bus can share their phone location for that bus. Every location is checked automatically (on the route, moving like a vehicle, no jumps) before others see it. The bus phone always has priority.</p></div></div>
+    <div class="a-card a-form"><label class="switch"><input type="checkbox" id="crowdOn"><span></span><b>Allow students to share bus location</b></label></div>
+    <h3 class="a-sub">Sharing now (last 30 min)</h3>
+    <div class="a-card a-table-wrap"><table class="a-table"><thead><tr><th>Student ID</th><th>Bus</th><th>Check status</th><th>Started</th><th>Last update</th><th class="r"></th></tr></thead><tbody id="sharerRows"></tbody></table>
+      <p id="sharerEmpty" class="muted a-empty" hidden>Nobody is sharing right now.</p></div>
+    <h3 class="a-sub">Blocked from sharing</h3>
+    <div class="a-card a-table-wrap"><table class="a-table"><tbody id="blockRows"></tbody></table><p id="blockEmpty" class="muted a-empty" hidden>No blocked students.</p></div>
   </section>
 
   <!-- Notices -->

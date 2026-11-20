@@ -81,16 +81,19 @@
     timer = setInterval(flush, 1000);
   }
   function stop() {
-    if (watch !== null) navigator.geolocation.clearWatch(watch); watch = null; clearInterval(timer);
+    if (watch !== null) navigator.geolocation.clearWatch(watch); watch = null; clearInterval(timer); lastPos = null;
     try { wake && wake.release(); } catch {} wake = null;
     $('#go').textContent = 'Start sharing'; $('#go').classList.remove('stop'); setSt('Not sharing');
   }
-  function onFix(p) { pending = p; flush(); }
+  let lastPos = null;
+  function onFix(p) { pending = p; lastPos = p; flush(); }
   function onErr(e) { setSt(e.code === 1 ? 'Please allow location access' : 'No GPS signal', 'bad'); }
 
   async function flush() {
-    if (!pending || Date.now() - last < MIN_GAP) return;
-    const { coords: c, timestamp } = pending; pending = null; last = Date.now();
+    // a parked/waiting bus gets no new GPS events: re-send the last fix so it does not look offline
+    const pos = pending || lastPos;
+    if (!pos || Date.now() - last < MIN_GAP) return;
+    const { coords: c } = pos, timestamp = pending ? pending.timestamp : Date.now(); pending = null; last = Date.now();
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'content-type': 'application/json' }, keepalive: true,
         body: JSON.stringify({ token, lat: c.latitude, lng: c.longitude, speed: c.speed ?? undefined, heading: c.heading ?? undefined, acc: c.accuracy, ts: timestamp }) });

@@ -1,4 +1,4 @@
-import { db, adminFrom, buildGeometry, bumpRev, getRev, sha256, num, CAMPUS, ensureSchema } from './_lib.js';
+import { db, adminFrom, buildGeometry, bumpRev, getRev, sha256, num, CAMPUS, ensureSchema, getSetting, setSetting } from './_lib.js';
 import { randomBytes } from 'node:crypto';
 
 const BUS_ID = /^[A-Za-z0-9-]{1,10}$/;
@@ -23,11 +23,16 @@ async function state() {
     db().execute('SELECT bus_id, ts, speed FROM positions'),
   ]);
   const notices = await db().execute('SELECT id, message, level, created_at, expires_at FROM notices ORDER BY created_at DESC LIMIT 100');
+  const sharers = await db().execute({ sql: 'SELECT student_id, bus_id, status, started_at, verified_at, last_ts FROM share_sessions WHERE last_ts > ? ORDER BY last_ts DESC', args: [Date.now() - 30 * 60e3] });
+  const blocks = await db().execute('SELECT student_id, at FROM share_blocks ORDER BY at DESC');
   const last = Object.fromEntries(pos.rows.map(p => [p.bus_id, p]));
   return {
     now: Date.now(), campus: CAMPUS, rev: await getRev(),
     routes: routes.rows.map(r => ({ id: r.id, name: r.name, color: r.color, stops: JSON.parse(r.stops), geometry: JSON.parse(r.geometry) })),
     buses: buses.rows.map(b => ({ id: b.id, routeId: b.route_id, departStart: b.depart_start, departCampus: b.depart_campus, days: b.days, lastSeen: last[b.id]?.ts ?? null, speed: last[b.id]?.speed ?? null })),
+    crowdEnabled: (await getSetting('crowd_enabled', '1')) === '1',
+    sharers: sharers.rows.map(x => ({ studentId: x.student_id, busId: x.bus_id, status: x.status, startedAt: x.started_at, verifiedAt: x.verified_at, lastTs: x.last_ts })),
+    blocked: blocks.rows.map(x => ({ studentId: x.student_id, at: x.at })),
     notices: notices.rows.map(n => ({ id: n.id, message: n.message, level: n.level, createdAt: n.created_at, expiresAt: n.expires_at })),
   };
 }
@@ -97,6 +102,17 @@ const actions = {
     await db().execute({ sql: 'DELETE FROM notices WHERE id = ?', args: [Number(id)] });
     return {};
   },
+  async setCrowd({ enabled }) { await setSetting('crowd_enabled', enabled ? '1' : '0'); return {}; },
+  async blockSharer({ studentId }) {
+    studentId = String(studentId || '').trim(); if (!studentId) throw new Error('Student ID missing.');
+    await db().batch([
+      { sql: 'INSERT INTO share_blocks (student_id, at) VALUES (?,?) ON CONFLICT(student_id) DO NOTHING', args: [studentId, Date.now()] },
+      { sql: 'DELETE FROM share_sessions WHERE student_id = ?', args: [studentId] },
+      { sql: 'DELETE FROM share_fixes WHERE student_id = ?', args: [studentId] },
+    ], 'write');
+    return {};
+  },
+  async unblockSharer({ studentId }) { await db().execute({ sql: 'DELETE FROM share_blocks WHERE student_id = ?', args: [String(studentId)] }); return {}; },
   async newToken({ id }) {
     const token = newToken();
     const r = await db().execute({ sql: 'UPDATE buses SET token_hash = ? WHERE id = ?', args: [sha256(token), id] });

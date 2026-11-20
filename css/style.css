@@ -291,3 +291,20 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
   .live { padding: 5px 8px; font-size: 0; gap: 0; } .live i { width: 8px; height: 8px; }
   .ghost.light { white-space: nowrap; padding: 6px 10px; }
 }
+
+/* ---------- Crowd sharing ---------- */
+.sharebar { display: flex; gap: 10px; align-items: center; justify-content: space-between; margin: 12px 0 4px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: #f6f8f5; }
+.sharebar b { font-size: 13px; } .sharebar p { margin: 2px 0 0; font-size: 13px; line-height: 1.4; color: var(--ink-2); }
+.sharebar.ok { background: #ecf7ef; border-color: #bfe3c9; } .sharebar.wait { background: #fff8e6; border-color: #f3dc9b; } .sharebar.bad { background: #fef3f2; border-color: #fecdca; }
+.sharebar .sb-act { display: flex; gap: 8px; align-items: center; flex: none; }
+.sharebar .link { border: 0; background: none; color: var(--green); font-weight: 600; font-size: 13px; padding: 4px; }
+.btn-stop { border: 1px solid #fecdca; background: #fff; color: #b42318; font-weight: 600; font-size: 13px; padding: 6px 12px; border-radius: 8px; }
+.sharecta { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 12px 14px; border: 1px dashed #b9c7b9; border-radius: var(--r); margin: 0 0 12px; background: #fbfdfb; }
+.sharecta b { font-size: 14px; } .sharecta p { margin: 2px 0 0; font-size: 13px; color: var(--muted); line-height: 1.4; }
+.btn.sm { padding: 8px 13px; font-size: 13.5px; white-space: nowrap; }
+.sdlg { border: 0; border-radius: 14px; padding: 22px; width: min(460px, calc(100% - 28px)); box-shadow: 0 20px 60px rgba(0,0,0,.3); color: var(--ink); }
+.sdlg::backdrop { background: rgba(16,24,20,.45); }
+.sdlg h3 { margin: 0 0 10px; font-size: 18px; }
+.sdlg ul { margin: 0 0 16px; padding-left: 18px; color: var(--ink-2); font-size: 14px; line-height: 1.5; } .sdlg li { margin-bottom: 6px; }
+.sdlg .row { display: flex; gap: 10px; justify-content: flex-end; }
+.btn.ghost-b { background: #fff; border: 1px solid #cfd6cd; color: var(--ink-2); }

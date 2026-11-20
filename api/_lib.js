@@ -25,6 +25,12 @@ export const SCHEMA = [
      speed REAL, heading REAL, acc REAL, ts INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`,
   `CREATE TABLE IF NOT EXISTS login_attempts (key TEXT PRIMARY KEY, fails INTEGER NOT NULL, locked_until INTEGER NOT NULL, last INTEGER NOT NULL)`,
+  // Crowd mode: students on the bus share their phone location. One session per student, plus a short window of recent fixes.
+  `CREATE TABLE IF NOT EXISTS share_sessions (student_id TEXT PRIMARY KEY, bus_id TEXT NOT NULL, status TEXT NOT NULL,
+     started_at INTEGER NOT NULL, verified_at INTEGER, last_ts INTEGER NOT NULL, last_lat REAL, last_lng REAL, last_s REAL, jumps INTEGER NOT NULL DEFAULT 0)`,
+  `CREATE TABLE IF NOT EXISTS share_fixes (student_id TEXT NOT NULL, ts INTEGER NOT NULL, s REAL NOT NULL, off REAL NOT NULL, lat REAL NOT NULL, lng REAL NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS share_fixes_student ON share_fixes (student_id, ts)`,
+  `CREATE TABLE IF NOT EXISTS share_blocks (student_id TEXT PRIMARY KEY, at INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS notices (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT NOT NULL, level TEXT NOT NULL DEFAULT 'info',
      created_at INTEGER NOT NULL, expires_at INTEGER)`,
 ];
@@ -33,6 +39,7 @@ const MIGRATIONS = [
   `ALTER TABLE buses ADD COLUMN depart_start TEXT`,   // e.g. "06:30" — leaves the first stop
   `ALTER TABLE buses ADD COLUMN depart_campus TEXT`,  // e.g. "17:40" — leaves campus
   `ALTER TABLE buses ADD COLUMN days TEXT`,           // e.g. "Sat–Wed"
+  `ALTER TABLE positions ADD COLUMN source TEXT`,     // 'device' (bus phone) or 'crowd' (verified student on board)
 ];
 
 // Create any missing tables once per serverless instance (cheap: CREATE TABLE IF NOT EXISTS).
@@ -53,6 +60,13 @@ export async function activeNotices() {
 /** Bump the config revision so clients reload routes/buses. */
 export async function bumpRev() {
   await db().execute({ sql: `INSERT INTO settings (key,value) VALUES ('rev',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, args: [String(Date.now())] });
+}
+export async function getSetting(key, fallback = null) {
+  const r = await db().execute({ sql: 'SELECT value FROM settings WHERE key = ?', args: [key] });
+  return r.rows[0] ? r.rows[0].value : fallback;
+}
+export async function setSetting(key, value) {
+  await db().execute({ sql: `INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, args: [key, String(value)] });
 }
 export async function getRev() {
   const r = await db().execute(`SELECT value FROM settings WHERE key='rev'`);
@@ -114,6 +128,7 @@ export const num = (v, lo, hi) => { const n = Number(v); return Number.isFinite(
 
 /** Verifies a bus token and stores its latest position. */
 export async function saveFix({ token, lat, lng, speed, heading, acc, ts }) {
+  await ensureSchema();
   lat = num(lat, -90, 90); lng = num(lng, -180, 180);
   if (lat === null || lng === null || !token) return { status: 400, error: 'Bad request' };
   const r = await db().execute({ sql: 'SELECT id FROM buses WHERE token_hash = ?', args: [sha256(token)] });
@@ -121,9 +136,9 @@ export async function saveFix({ token, lat, lng, speed, heading, acc, ts }) {
   const now = Date.now();
   let t = Number(ts); if (!Number.isFinite(t) || Math.abs(t - now) > 5 * 60e3) t = now; // use server time if the phone clock is wrong
   await db().execute({
-    sql: `INSERT INTO positions (bus_id, lat, lng, speed, heading, acc, ts) VALUES (?,?,?,?,?,?,?)
+    sql: `INSERT INTO positions (bus_id, lat, lng, speed, heading, acc, ts, source) VALUES (?,?,?,?,?,?,?,'device')
           ON CONFLICT(bus_id) DO UPDATE SET lat=excluded.lat, lng=excluded.lng, speed=excluded.speed,
-          heading=excluded.heading, acc=excluded.acc, ts=excluded.ts WHERE excluded.ts >= positions.ts`,
+          heading=excluded.heading, acc=excluded.acc, ts=excluded.ts, source='device' WHERE excluded.ts >= positions.ts`,
     args: [r.rows[0].id, lat, lng, num(speed, 0, 80), num(heading, 0, 360), num(acc, 0, 5000), t],
   });
   return { status: 200, bus: r.rows[0].id };

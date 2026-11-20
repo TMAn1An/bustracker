@@ -36,13 +36,14 @@
   async function start() {
     S = await api('admin');
     $('#signin').hidden = true; $('#adminApp').hidden = false;
-    renderBuses(); renderRouteList(); renderNotices();
+    renderBuses(); renderRouteList(); renderNotices(); renderSharing();
+    setInterval(async () => { if (!$('#tab-sharing').hidden && !document.hidden) { try { S = await api('admin'); renderSharing(); } catch {} } }, 10000);
   }
 
   /* ---------- tabs ---------- */
   document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => {
     document.querySelectorAll('[data-tab]').forEach(x => x.setAttribute('aria-selected', x === b));
-    ['buses', 'routes', 'notices'].forEach(t => { $('#tab-' + t).hidden = b.dataset.tab !== t; });
+    ['buses', 'routes', 'notices', 'sharing'].forEach(t => { $('#tab-' + t).hidden = b.dataset.tab !== t; });
     if (b.dataset.tab === 'routes') { initMap().then(() => { map.resize(); drawRoute(); }); }
   }));
 
@@ -88,6 +89,32 @@
     $('#tokDlg').showModal();
   }
   $('#tokCopy').addEventListener('click', async () => { try { await navigator.clipboard.writeText($('#tokLink').value); toast('Link copied'); } catch { $('#tokLink').select(); toast('Press Ctrl+C to copy'); } });
+
+  /* ---------- Sharing ---------- */
+  const ST = { verified: ['Verified · in use', 'ok'], backup: ['Verified · standby (bus phone live)', 'ok'], checking: ['Checking movement', 'wait'], paused: ['Paused · not moving', 'wait'],
+    weak_gps: ['Weak GPS', 'wait'], off_route: ['Not on route', 'bad'], jump: ['Impossible jump', 'bad'], disagree: ['Does not match other rider', 'bad'] };
+  function renderSharing() {
+    $('#crowdOn').checked = !!S.crowdEnabled;
+    $('#sharerEmpty').hidden = S.sharers.length > 0;
+    $('#sharerRows').innerHTML = S.sharers.map(x => {
+      const [label, cls] = ST[x.status] || [x.status, 'wait'];
+      return `<tr><td><b>${esc(x.studentId)}</b></td><td>Bus ${esc(x.busId)}</td><td class="st-${cls}">${esc(label)}</td><td class="small">${fmtWhen(x.startedAt)}</td><td class="small">${ago(x.lastTs) || ''}</td>
+        <td class="r"><button class="btn ghost-btn sm danger" data-block="${esc(x.studentId)}">Block</button></td></tr>`;
+    }).join('');
+    $('#blockEmpty').hidden = S.blocked.length > 0;
+    $('#blockRows').innerHTML = S.blocked.map(x => `<tr><td><b>${esc(x.studentId)}</b></td><td class="small">Blocked ${fmtWhen(x.at)}</td><td class="r"><button class="btn ghost-btn sm" data-unblock="${esc(x.studentId)}">Unblock</button></td></tr>`).join('');
+  }
+  $('#crowdOn').addEventListener('change', async e => {
+    try { await act('setCrowd', { enabled: e.target.checked }); toast(e.target.checked ? 'Student sharing turned on' : 'Student sharing turned off'); renderSharing(); }
+    catch (x) { toast(x.message, true); e.target.checked = !e.target.checked; }
+  });
+  $('#tab-sharing').addEventListener('click', async e => {
+    const b = e.target.closest('[data-block]'), u = e.target.closest('[data-unblock]');
+    try {
+      if (b && confirm(`Block student ${b.dataset.block} from sharing location?`)) { await act('blockSharer', { studentId: b.dataset.block }); toast('Student blocked'); renderSharing(); }
+      if (u) { await act('unblockSharer', { studentId: u.dataset.unblock }); toast('Student unblocked'); renderSharing(); }
+    } catch (x) { toast(x.message, true); }
+  });
 
   /* ---------- Notices ---------- */
   const fmtWhen = ts => new Date(ts).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });

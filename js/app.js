@@ -45,6 +45,7 @@
   });
   $('#logout').addEventListener('click', logout);
   function logout() {
+    Share.stop();
     store.del('iubat_token'); store.del('iubat_user'); Feed.stop();
     appEl.hidden = true; loginEl.hidden = false; $('#pw').value = ''; view = { name: 'routes' };
   }
@@ -69,6 +70,7 @@
       checkNewNotices(); refresh();
     };
     checkNewNotices();
+    Share.onChange = () => render();
     await map.ready;
     let last = performance.now();
     (function loop(now) {
@@ -83,7 +85,9 @@
       if (t.closest('[data-back]')) return go({ name: 'routes' });
       const r = t.closest('[data-route]'); if (r) return openRoute(r.dataset.route);
       const b = t.closest('[data-bus]'); if (b) return openBus(b.dataset.bus);
-      const n = t.closest('[data-del-seen]'); if (n) return;
+      if (t.closest('[data-share]')) return askShare(t.closest('[data-share]').dataset.share);
+      if (t.closest('[data-unshare]')) return Share.stop();
+      if (t.closest('[data-gosh]')) return openBus(Share.busId);
     });
     $('#notices').addEventListener('click', e => {
       if (e.target.closest('[data-all]')) return go({ name: 'notices' });
@@ -142,7 +146,7 @@
   function render() {
     renderNotices();
     const body = $('#panelBody'), top = body.scrollTop;
-    body.innerHTML = view.name === 'route' ? routeView() : view.name === 'notices' ? noticesView() : routesView();
+    body.innerHTML = shareBar() + (view.name === 'route' ? routeView() : view.name === 'notices' ? noticesView() : routesView());
     body.scrollTop = top;
   }
 
@@ -192,6 +196,27 @@
     return parts.join(' · ') + (s.days ? ` · ${esc(s.days)}` : '');
   }
   const dirText = b => (b.inbound ? 'Inbound · to campus' : 'Outbound · from campus');
+
+  /* ---------- crowd sharing ---------- */
+  function askShare(busId) {
+    const dlg = $('#shareDlg');
+    dlg.returnValue = '';
+    dlg.onclose = () => { if (dlg.returnValue === 'yes') Share.start(busId, store.get('iubat_token')); };
+    dlg.showModal();
+  }
+  const SH_CLASS = { verified: 'ok', backup: 'ok', checking: 'wait', starting: 'wait', weak_gps: 'wait', paused: 'wait', off_route: 'bad', jump: 'bad', disagree: 'bad' };
+  function shareBar() {
+    if (!Share.active && !Share.message) return '';
+    if (!Share.active) return `<div class="sharebar ${Share.error ? 'bad' : 'ok'}"><p>${esc(Share.message)}</p></div>`;
+    const cls = SH_CLASS[Share.status] || 'wait';
+    return `<div class="sharebar ${cls}"><div><b>Sharing for Bus ${esc(Share.busId)}</b><p>${esc(Share.message)}</p></div>
+      <span class="sb-act">${view.name !== 'route' || view.busId !== Share.busId ? '<button class="link" data-gosh>View</button>' : ''}<button class="btn-stop" data-unshare>Stop</button></span></div>`;
+  }
+  function shareCta(b) {
+    if (!Feed.crowdEnabled || b.noRoute || Share.active) return '';
+    return `<div class="sharecta"><div><b>On this bus?</b><p>Share your phone's location so everyone can see where Bus ${esc(b.id)} is${b.status === 'offline' ? ' (it has no live signal right now)' : ''}.</p></div><button class="btn primary sm" data-share="${esc(b.id)}">Share location</button></div>`;
+  }
+  const srcText = b => (b.source === 'crowd' ? 'via a rider on board' : 'via bus GPS');
 
   /* ---------- routes list ---------- */
   function routesView() {
@@ -244,7 +269,7 @@
 
   function busDetail(b, r) {
     const head = `<div class="d-head"><span class="badge ${b.status}">${esc(b.id)}</span><div><h2>Bus ${esc(b.id)}</h2><span class="pill ${b.status}">${STATUS[b.status]}${b.atStop && b.status === 'stopped' ? ' · ' + esc(b.atStop) : ''}</span>${(b.noRoute || b.noData) ? '' : ` <span class="pill dir">${dirText(b)}</span>`}</div></div>`;
-    if (b.noData) return head + `<p class="muted-p">This bus has not sent its location yet. It appears here as soon as the driver's phone starts sharing.</p>` + (r ? stopsOnly(r) : '');
+    if (b.noData) return head + shareCta(b) + `<p class="muted-p">No live location yet. It appears as soon as the bus phone or a rider on board shares.</p>` + (r ? stopsOnly(r) : '');
     if (b.noRoute) return head + `<p class="muted-p">No route assigned yet. Live position is shown on the map.</p>`;
     const off = b.status === 'offline';
     const next = off ? 'Offline' : (b.nextStop ? esc(b.nextStop.name) : 'Arrived');
@@ -258,8 +283,9 @@
           <div class="fill" style="width:${(b.progress * 100).toFixed(1)}%"></div>
           <div class="bus" style="left:${(b.progress * 100).toFixed(1)}%">${ICON_BUS}</div>
         </div>
-        <div class="j-foot">${off ? '<b>No signal</b> · last seen ' + lastSeen(b) : '<b>' + (b.inbound ? 'Heading to campus' : 'Leaving campus') + '</b>'}</div>
+        <div class="j-foot">${off ? '<b>No signal</b> · last seen ' + lastSeen(b) : '<b>' + (b.inbound ? 'Heading to campus' : 'Leaving campus') + '</b> · ' + srcText(b)}</div>
       </div>
+      ${shareCta(b)}
       <div class="stats">
         <div class="stat hot"><small>Arrives in</small><strong>${b.destEtaText}</strong></div>
         <div class="stat warm"><small>Next stop</small><strong style="font-size:16px">${next}</strong>${!off && b.nextStop ? `<em> · ${b.nextEtaText}</em>` : ''}</div>
