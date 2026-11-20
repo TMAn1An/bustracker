@@ -36,13 +36,13 @@
   async function start() {
     S = await api('admin');
     $('#signin').hidden = true; $('#adminApp').hidden = false;
-    renderBuses(); renderRouteList();
+    renderBuses(); renderRouteList(); renderNotices();
   }
 
   /* ---------- tabs ---------- */
   document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => {
     document.querySelectorAll('[data-tab]').forEach(x => x.setAttribute('aria-selected', x === b));
-    $('#tab-buses').hidden = b.dataset.tab !== 'buses'; $('#tab-routes').hidden = b.dataset.tab !== 'routes';
+    ['buses', 'routes', 'notices'].forEach(t => { $('#tab-' + t).hidden = b.dataset.tab !== t; });
     if (b.dataset.tab === 'routes') { initMap().then(() => { map.resize(); drawRoute(); }); }
   }));
 
@@ -56,6 +56,9 @@
       return `<tr data-id="${esc(b.id)}">
         <td><input class="no" value="${esc(b.id)}" maxlength="10" aria-label="Bus number"></td>
         <td><select class="rt" aria-label="Route">${routeOpts(b.routeId)}</select></td>
+        <td><input class="tm ds" type="time" value="${esc(b.departStart || '')}" aria-label="Leaves start"></td>
+        <td><input class="tm dc" type="time" value="${esc(b.departCampus || '')}" aria-label="Leaves campus"></td>
+        <td><input class="dy" list="dayPresets" value="${esc(b.days || '')}" maxlength="30" placeholder="Sat–Wed" aria-label="Days"></td>
         <td><span class="seen ${live ? 'on' : ''}"><i></i>${seen ? seen : 'Never'}</span></td>
         <td class="r"><button class="btn ghost-btn sm save" hidden>Save</button><button class="btn ghost-btn sm tok">New token</button><button class="btn ghost-btn sm danger del">Delete</button></td></tr>`;
     }).join('');
@@ -65,7 +68,11 @@
   $('#busRows').addEventListener('click', async e => {
     const tr = e.target.closest('tr'); if (!tr) return; const id = tr.dataset.id;
     try {
-      if (e.target.closest('.save')) { await act('saveBus', { id, newId: tr.querySelector('.no').value, routeId: tr.querySelector('.rt').value || null }); toast('Bus saved'); renderBuses(); renderRouteList(); }
+      if (e.target.closest('.save')) {
+        await act('saveBus', { id, newId: tr.querySelector('.no').value, routeId: tr.querySelector('.rt').value || null,
+          departStart: tr.querySelector('.ds').value, departCampus: tr.querySelector('.dc').value, days: tr.querySelector('.dy').value });
+        toast('Bus saved'); renderBuses(); renderRouteList();
+      }
       else if (e.target.closest('.tok')) { if (!confirm(`Generate a new tracker token for bus ${id}? The old token will stop working.`)) return; const j = await act('newToken', { id }); showToken(id, j.token); }
       else if (e.target.closest('.del')) { if (!confirm(`Delete bus ${id}? Its tracker token will stop working.`)) return; await act('deleteBus', { id }); toast('Bus deleted'); renderBuses(); renderRouteList(); }
     } catch (x) { toast(x.message, true); }
@@ -81,6 +88,35 @@
     $('#tokDlg').showModal();
   }
   $('#tokCopy').addEventListener('click', async () => { try { await navigator.clipboard.writeText($('#tokLink').value); toast('Link copied'); } catch { $('#tokLink').select(); toast('Press Ctrl+C to copy'); } });
+
+  /* ---------- Notices ---------- */
+  const fmtWhen = ts => new Date(ts).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+  function renderNotices() {
+    $('#noticeEmpty').hidden = S.notices.length > 0;
+    $('#noticeRows').innerHTML = S.notices.map(n => {
+      const live = !n.expiresAt || n.expiresAt > S.now;
+      return `<tr data-id="${n.id}"><td class="ntext">${esc(n.message)}</td>
+        <td><span class="pill ${n.level === 'urgent' ? 'urgent' : 'info'}">${n.level === 'urgent' ? 'Urgent' : 'Notice'}</span></td>
+        <td class="small">${fmtWhen(n.createdAt)}</td>
+        <td class="small">${live ? (n.expiresAt ? 'Showing until ' + fmtWhen(n.expiresAt) : 'Showing') : 'Expired'}</td>
+        <td class="r"><button class="btn ghost-btn sm danger ndel">Delete</button></td></tr>`;
+    }).join('');
+  }
+  $('#nMsg').addEventListener('input', e => { $('#nCount').textContent = `${e.target.value.length} / 500`; });
+  $('#noticeForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const exp = $('#nExp').value ? new Date($('#nExp').value).getTime() : null;
+    try {
+      await act('addNotice', { message: $('#nMsg').value, level: $('#nLevel').value, expiresAt: exp });
+      $('#nMsg').value = ''; $('#nExp').value = ''; $('#nCount').textContent = '0 / 500';
+      toast('Notice published to all apps'); renderNotices();
+    } catch (x) { toast(x.message, true); }
+  });
+  $('#noticeRows').addEventListener('click', async e => {
+    const b = e.target.closest('.ndel'); if (!b) return;
+    if (!confirm('Delete this notice? It will disappear from all apps.')) return;
+    try { await act('deleteNotice', { id: b.closest('tr').dataset.id }); toast('Notice deleted'); renderNotices(); } catch (x) { toast(x.message, true); }
+  });
 
   /* ---------- Routes ---------- */
   function renderRouteList() {

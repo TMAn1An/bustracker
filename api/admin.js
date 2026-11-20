@@ -1,8 +1,10 @@
-import { db, adminFrom, buildGeometry, bumpRev, getRev, sha256, num, CAMPUS } from './_lib.js';
+import { db, adminFrom, buildGeometry, bumpRev, getRev, sha256, num, CAMPUS, ensureSchema } from './_lib.js';
 import { randomBytes } from 'node:crypto';
 
 const BUS_ID = /^[A-Za-z0-9-]{1,10}$/;
 const COLOR = /^#[0-9a-fA-F]{6}$/;
+const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+const time = (v, label) => { v = String(v || '').trim(); if (v && !TIME.test(v)) throw new Error(`${label}: use a time like 06:30.`); return v || null; };
 const newToken = () => randomBytes(18).toString('base64url');
 
 function cleanStops(list) {
@@ -17,14 +19,16 @@ function cleanStops(list) {
 async function state() {
   const [routes, buses, pos] = await Promise.all([
     db().execute('SELECT id, name, color, stops, geometry, updated_at FROM routes ORDER BY name'),
-    db().execute('SELECT id, route_id FROM buses ORDER BY CAST(id AS INTEGER), id'),
+    db().execute('SELECT id, route_id, depart_start, depart_campus, days FROM buses ORDER BY CAST(id AS INTEGER), id'),
     db().execute('SELECT bus_id, ts, speed FROM positions'),
   ]);
+  const notices = await db().execute('SELECT id, message, level, created_at, expires_at FROM notices ORDER BY created_at DESC LIMIT 100');
   const last = Object.fromEntries(pos.rows.map(p => [p.bus_id, p]));
   return {
     now: Date.now(), campus: CAMPUS, rev: await getRev(),
     routes: routes.rows.map(r => ({ id: r.id, name: r.name, color: r.color, stops: JSON.parse(r.stops), geometry: JSON.parse(r.geometry) })),
-    buses: buses.rows.map(b => ({ id: b.id, routeId: b.route_id, lastSeen: last[b.id]?.ts ?? null, speed: last[b.id]?.speed ?? null })),
+    buses: buses.rows.map(b => ({ id: b.id, routeId: b.route_id, departStart: b.depart_start, departCampus: b.depart_campus, days: b.days, lastSeen: last[b.id]?.ts ?? null, speed: last[b.id]?.speed ?? null })),
+    notices: notices.rows.map(n => ({ id: n.id, message: n.message, level: n.level, createdAt: n.created_at, expiresAt: n.expires_at })),
   };
 }
 
@@ -47,8 +51,10 @@ const actions = {
     return {};
   },
   // Create a bus, or rename it / change its route. `id` = current number (null when creating), `newId` = number to use.
-  async saveBus({ id, newId, routeId }) {
+  async saveBus({ id, newId, routeId, departStart, departCampus, days }) {
     newId = String(newId || '').trim();
+    const ds = time(departStart, 'Leaves start'), dc = time(departCampus, 'Leaves campus');
+    days = String(days || '').trim().slice(0, 30) || null;
     if (!BUS_ID.test(newId)) throw new Error('Bus number: 1-10 letters, digits or dashes.');
     if (routeId) {
       const r = await db().execute({ sql: 'SELECT id FROM routes WHERE id = ?', args: [routeId] });
@@ -58,23 +64,37 @@ const actions = {
       const ex = await db().execute({ sql: 'SELECT id FROM buses WHERE id = ?', args: [newId] });
       if (ex.rows[0]) throw new Error(`Bus ${newId} already exists.`);
       const token = newToken();
-      await db().execute({ sql: 'INSERT INTO buses (id, route_id, token_hash) VALUES (?,?,?)', args: [newId, routeId || null, sha256(token)] });
+      await db().execute({ sql: 'INSERT INTO buses (id, route_id, token_hash, depart_start, depart_campus, days) VALUES (?,?,?,?,?,?)', args: [newId, routeId || null, sha256(token), ds, dc, days] });
       return { token };
     }
     if (id !== newId) {
       const ex = await db().execute({ sql: 'SELECT id FROM buses WHERE id = ?', args: [newId] });
       if (ex.rows[0]) throw new Error(`Bus ${newId} already exists.`);
       await db().batch([
-        { sql: 'UPDATE buses SET id = ?, route_id = ? WHERE id = ?', args: [newId, routeId || null, id] },
+        { sql: 'UPDATE buses SET id = ?, route_id = ?, depart_start = ?, depart_campus = ?, days = ? WHERE id = ?', args: [newId, routeId || null, ds, dc, days, id] },
         { sql: 'UPDATE positions SET bus_id = ? WHERE bus_id = ?', args: [newId, id] },
       ], 'write');
     } else {
-      await db().execute({ sql: 'UPDATE buses SET route_id = ? WHERE id = ?', args: [routeId || null, id] });
+      await db().execute({ sql: 'UPDATE buses SET route_id = ?, depart_start = ?, depart_campus = ?, days = ? WHERE id = ?', args: [routeId || null, ds, dc, days, id] });
     }
     return {};
   },
   async deleteBus({ id }) {
     await db().batch([{ sql: 'DELETE FROM positions WHERE bus_id = ?', args: [id] }, { sql: 'DELETE FROM buses WHERE id = ?', args: [id] }], 'write');
+    return {};
+  },
+  async addNotice({ message, level, expiresAt }) {
+    message = String(message || '').trim();
+    if (!message) throw new Error('Write the notice text.');
+    if (message.length > 500) throw new Error('Notice is too long (max 500 characters).');
+    level = level === 'urgent' ? 'urgent' : 'info';
+    const exp = expiresAt ? Number(expiresAt) : null;
+    if (exp !== null && (!Number.isFinite(exp) || exp <= Date.now())) throw new Error('Expiry must be in the future.');
+    await db().execute({ sql: 'INSERT INTO notices (message, level, created_at, expires_at) VALUES (?,?,?,?)', args: [message, level, Date.now(), exp] });
+    return {};
+  },
+  async deleteNotice({ id }) {
+    await db().execute({ sql: 'DELETE FROM notices WHERE id = ?', args: [Number(id)] });
     return {};
   },
   async newToken({ id }) {
@@ -87,6 +107,7 @@ const actions = {
 
 export default async function handler(req, res) {
   if (!adminFrom(req)) return res.status(401).json({ error: 'Admin sign-in required.' });
+  await ensureSchema();
   res.setHeader('Cache-Control', 'no-store');
   if (req.method === 'GET') return res.status(200).json(await state());
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });

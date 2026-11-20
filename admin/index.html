@@ -33,6 +33,7 @@
       <nav class="tabs" role="tablist">
         <button role="tab" data-tab="buses" aria-selected="true">Buses</button>
         <button role="tab" data-tab="routes" aria-selected="false">Routes</button>
+        <button role="tab" data-tab="notices" aria-selected="false">Notices</button>
       </nav>
       <button class="ghost light" id="aout">Sign out</button>
     </div>
@@ -41,7 +42,7 @@
   <!-- Buses -->
   <section id="tab-buses" class="a-page">
     <div class="a-head">
-      <div><h2>Buses</h2><p class="muted">Set each bus number and the route it runs. Each bus phone uses its own tracker token.</p></div>
+      <div><h2>Buses</h2><p class="muted">Set each bus number, its route and departure times. Each bus phone uses its own tracker token.</p></div>
       <form id="addBus" class="a-inline">
         <input id="newBusNo" placeholder="Bus no. (e.g. 12)" maxlength="10" required aria-label="New bus number">
         <select id="newBusRoute" aria-label="Route"></select>
@@ -50,7 +51,7 @@
     </div>
     <div class="a-card a-table-wrap">
       <table class="a-table">
-        <thead><tr><th>Bus no.</th><th>Route</th><th>Last seen</th><th class="r">Actions</th></tr></thead>
+        <thead><tr><th>Bus no.</th><th>Route</th><th>Leaves start</th><th>Leaves campus</th><th>Days</th><th>Last seen</th><th class="r">Actions</th></tr></thead>
         <tbody id="busRows"></tbody>
       </table>
       <p id="busEmpty" class="muted a-empty" hidden>No buses yet. Add one above.</p>
@@ -85,8 +86,28 @@
       </div>
     </div>
   </section>
+
+  <!-- Notices -->
+  <section id="tab-notices" class="a-page" hidden>
+    <div class="a-head"><div><h2>Notices</h2><p class="muted">A notice appears in every student's app within a few seconds.</p></div></div>
+    <form id="noticeForm" class="a-card a-form">
+      <label class="field"><span>Message</span><textarea id="nMsg" rows="3" maxlength="500" placeholder="e.g. Bus 11 will leave campus at 6:00 PM today." required></textarea></label>
+      <div class="a-row">
+        <label class="field"><span>Type</span><select id="nLevel"><option value="info">Notice</option><option value="urgent">Urgent</option></select></label>
+        <label class="field"><span>Hide after (optional)</span><input id="nExp" type="datetime-local"></label>
+        <span class="grow"></span>
+        <span id="nCount" class="small muted">0 / 500</span>
+        <button class="btn primary">Publish notice</button>
+      </div>
+    </form>
+    <div class="a-card a-table-wrap" style="margin-top:14px">
+      <table class="a-table"><thead><tr><th>Notice</th><th>Type</th><th>Published</th><th>Status</th><th class="r"></th></tr></thead><tbody id="noticeRows"></tbody></table>
+      <p id="noticeEmpty" class="muted a-empty" hidden>No notices yet.</p>
+    </div>
+  </section>
 </div>
 
+<!-- Notices tab is inside #adminApp; see below -->
 <!-- Token dialog -->
 <dialog id="tokDlg" class="a-dlg">
   <form method="dialog">
@@ -98,6 +119,7 @@
   </form>
 </dialog>
 
+<datalist id="dayPresets"><option value="Sat–Wed"><option value="Sat–Thu"><option value="Sun–Thu"><option value="Every day"></datalist>
 <div id="toast" class="a-toast" role="status" hidden></div>
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="admin.js"></script>

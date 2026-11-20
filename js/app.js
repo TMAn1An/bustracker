@@ -5,12 +5,20 @@
     set(k, v) { try { sessionStorage.setItem(k, v); } catch (e) {} },
     del(k) { try { sessionStorage.removeItem(k); } catch (e) {} },
   };
+  const local = {
+    get(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  };
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const STATUS = { running: 'Running', stopped: 'Stopped', offline: 'Offline' };
   const isMobile = () => matchMedia('(max-width: 860px)').matches;
   const ICON_BUS = '<svg class="i" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="15" rx="3"/><path d="M4 11h16M8 18v2M16 18v2"/><circle cx="8.5" cy="14.5" r=".6" fill="currentColor"/><circle cx="15.5" cy="14.5" r=".6" fill="currentColor"/></svg>';
   const ICON_BACK = '<svg class="i" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>';
+  const ICON_CHEV = '<svg class="i" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>';
+  const ICON_CLOCK = '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
 
-  let map = null, selected = null, snap = [], listKey = '';
+  // view: { name: 'routes' } | { name: 'route', routeId, busId } | { name: 'notices' }
+  let map = null, view = { name: 'routes' }, snap = [], seenNotices = new Set(local.get('iubat_seen_notices') || []), knownNotices = null;
 
   /* ================= Sign in ================= */
   const loginEl = $('#login'), appEl = $('#app');
@@ -38,7 +46,7 @@
   $('#logout').addEventListener('click', logout);
   function logout() {
     store.del('iubat_token'); store.del('iubat_user'); Feed.stop();
-    appEl.hidden = true; loginEl.hidden = false; $('#pw').value = ''; selected = null;
+    appEl.hidden = true; loginEl.hidden = false; $('#pw').value = ''; view = { name: 'routes' };
   }
 
   async function enter(token, name) {
@@ -54,8 +62,13 @@
   async function boot() {
     Feed.onAuthFail = () => { logout(); showErr('Your session has expired. Please sign in again.'); };
     Feed.onStatus = ok => { $('#conn').hidden = ok; };
-    map = new BusMap($('#map'), { routes: Feed.routes, campus: Feed.campus, onSelect: pick });
-    Feed.onRoutes = f => { map.setRoutes(f.routes); if (selected && !f.state.has(selected)) pick(null); listKey = ''; refresh(); };
+    map = new BusMap($('#map'), { routes: Feed.routes, campus: Feed.campus, onSelect: openBus });
+    Feed.onRoutes = f => {
+      map.setRoutes(f.routes);
+      if (view.name === 'route' && view.routeId && !f.routes.some(r => r.id === view.routeId)) go({ name: 'routes' });
+      checkNewNotices(); refresh();
+    };
+    checkNewNotices();
     await map.ready;
     let last = performance.now();
     (function loop(now) {
@@ -65,13 +78,18 @@
     })(last);
     refresh(); setInterval(refresh, 1000);
 
-    $('#chips').addEventListener('click', e => {
-      const b = e.target.closest('[data-id]'); if (b) pick(b.dataset.id);
-    });
     $('#panelBody').addEventListener('click', e => {
-      if (e.target.closest('[data-back]')) return pick(null);
-      const c = e.target.closest('[data-id]'); if (c) pick(c.dataset.id);
+      const t = e.target;
+      if (t.closest('[data-back]')) return go({ name: 'routes' });
+      const r = t.closest('[data-route]'); if (r) return openRoute(r.dataset.route);
+      const b = t.closest('[data-bus]'); if (b) return openBus(b.dataset.bus);
+      const n = t.closest('[data-del-seen]'); if (n) return;
     });
+    $('#notices').addEventListener('click', e => {
+      if (e.target.closest('[data-all]')) return go({ name: 'notices' });
+      const x = e.target.closest('[data-dismiss]'); if (x) { markSeen([+x.dataset.dismiss]); renderNotices(); }
+    });
+    $('#bell').addEventListener('click', () => go(view.name === 'notices' ? { name: 'routes' } : { name: 'notices' }));
     $('#handle').addEventListener('click', () => { $('#panel').classList.toggle('open'); pad(); });
     addEventListener('resize', pad); pad();
 
@@ -86,12 +104,31 @@
     $('#tLoc').addEventListener('click', () => map.recenter());
   }
 
-  function pick(id) {
-    selected = id;
-    if (isMobile()) { $('#panel').classList.toggle('open', !!id); pad(); }
-    map.select(id);
-    listKey = ''; render();
-    $('#panelBody').scrollTop = 0;
+  /* ---------- navigation ---------- */
+  function go(v) {
+    const prev = view; view = v;
+    if (v.name === 'routes' && prev.name === 'route') map.select(null);
+    if (v.name === 'notices') { markSeen(Feed.activeNotices().map(n => n.id)); }
+    if (isMobile()) { $('#panel').classList.toggle('open', v.name !== 'routes'); pad(); }
+    render(); $('#panelBody').scrollTop = 0;
+  }
+  function busesOn(routeId) { return snap.filter(b => b.routeId === routeId); }
+  // pick the most useful bus on a route: live first, then most recently seen
+  function bestBus(list) {
+    const rank = b => (b.status === 'running' ? 0 : b.status === 'stopped' ? 1 : 2);
+    return list.slice().sort((a, b) => rank(a) - rank(b) || (a.lastUpdateSec ?? 1e9) - (b.lastUpdateSec ?? 1e9))[0];
+  }
+  function openRoute(routeId, busId) {
+    snap = Feed.snapshot();
+    const bus = busId ? snap.find(b => b.id === busId) : bestBus(busesOn(routeId));
+    go({ name: 'route', routeId, busId: bus ? bus.id : null });
+    map.selectRoute(routeId, bus ? bus.id : null);
+  }
+  function openBus(busId) {
+    snap = Feed.snapshot();
+    const b = snap.find(x => x.id === busId); if (!b) return;
+    if (b.routeId) return openRoute(b.routeId, busId);
+    go({ name: 'route', routeId: null, busId }); map.select(busId);
   }
 
   // On mobile the bottom sheet covers the lower part of the map: shift the camera centre up
@@ -103,72 +140,138 @@
   function refresh() { snap = Feed.snapshot(); render(); }
 
   function render() {
-    const chips = snap.map(b => {
-      const cls = b.status === 'offline' ? 'is-off' : '';
-      const pip = b.status === 'stopped' ? 'stop' : '';
-      return `<button class="chip ${cls}" role="tab" data-id="${b.id}" aria-selected="${b.id === selected}" title="${b.routeName}"><span class="pip ${pip}"></span>${b.id}</button>`;
-    }).join('');
-    if (chips !== listKey) { $('#chips').innerHTML = chips; listKey = chips; }
-
+    renderNotices();
     const body = $('#panelBody'), top = body.scrollTop;
-    body.innerHTML = selected ? detail(snap.find(b => b.id === selected)) : list();
+    body.innerHTML = view.name === 'route' ? routeView() : view.name === 'notices' ? noticesView() : routesView();
     body.scrollTop = top;
   }
 
+  /* ---------- notices ---------- */
+  function markSeen(ids) { ids.forEach(i => seenNotices.add(i)); local.set('iubat_seen_notices', [...seenNotices].slice(-200)); }
+  function checkNewNotices() {
+    const list = Feed.activeNotices(), ids = new Set(list.map(n => n.id));
+    if (knownNotices) {
+      const fresh = list.filter(n => !knownNotices.has(n.id));
+      if (fresh.length) flash(fresh[0]);
+    }
+    knownNotices = ids;
+  }
+  let flashT;
+  function flash(n) {
+    const t = $('#ntoast');
+    t.className = 'ntoast ' + n.level; t.innerHTML = `<b>${n.level === 'urgent' ? 'Urgent notice' : 'New notice'}</b>${esc(n.message)}`;
+    t.hidden = false; clearTimeout(flashT); flashT = setTimeout(() => (t.hidden = true), 8000);
+  }
+  function renderNotices() {
+    const list = Feed.activeNotices(), unread = list.filter(n => !seenNotices.has(n.id));
+    const cnt = $('#bellCount'); cnt.hidden = !unread.length; cnt.textContent = unread.length;
+    $('#bell').classList.toggle('on', view.name === 'notices');
+    const n = unread[0];
+    const html = (!n || view.name === 'notices') ? '' :
+      `<div class="notice ${n.level}"><div><b>${n.level === 'urgent' ? 'Urgent' : 'Notice'}</b><p>${esc(n.message)}</p>${list.length > 1 ? `<button class="link" data-all>View all ${list.length} notices</button>` : ''}</div><button class="x" data-dismiss="${n.id}" aria-label="Dismiss notice">&times;</button></div>`;
+    const el = $('#notices'); if (el.innerHTML !== html) el.innerHTML = html;
+  }
+  function noticesView() {
+    const list = Feed.activeNotices();
+    return `<button class="ghost back" data-back>${ICON_BACK} All routes</button><div class="section-title">Notices</div>` +
+      (list.length ? list.map(n => `<article class="nitem ${n.level}"><span class="pill ${n.level === 'urgent' ? 'urgent' : 'info'}">${n.level === 'urgent' ? 'Urgent' : 'Notice'}</span><p>${esc(n.message)}</p><time>${when(n.createdAt)}</time></article>`).join('')
+        : '<p class="muted-p">No notices right now.</p>');
+  }
+  const when = ts => new Date(ts).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true });
+
+  /* ---------- formatting ---------- */
   const fmt = m => (m < 1 ? 'Now' : Math.ceil(m) + ' min');
   const short = n => n.replace(/^IUBAT /, '');
   const lastSeen = b => b.lastUpdateSec == null ? 'No data yet' : b.lastUpdateSec < 90 ? b.lastUpdateSec + ' s ago' : Math.round(b.lastUpdateSec / 60) + ' min ago';
-  const dirTag = b => (b.noRoute || b.noData) ? '' : `<span class="pill dir">${b.inbound ? 'Inbound · to campus' : 'Outbound · from campus'}</span>`;
+  const t12 = v => { if (!v) return null; const [h, m] = v.split(':').map(Number); return `${(h % 12) || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; };
+  function schedLine(b) {
+    const s = b.schedule || {}, parts = [];
+    if (s.departStart) parts.push(`Leaves ${esc(short(b.from === Feed.campus.name ? b.to : b.from))} ${t12(s.departStart)}`);
+    if (s.departCampus) parts.push(`Leaves campus ${t12(s.departCampus)}`);
+    if (!parts.length) return '';
+    return parts.join(' · ') + (s.days ? ` · ${esc(s.days)}` : '');
+  }
+  const dirText = b => (b.inbound ? 'Inbound · to campus' : 'Outbound · from campus');
 
-  function list() {
-    if (!snap.length) return '<p class="section-title">No buses have been set up yet.</p>';
-    const running = snap.filter(b => b.status !== 'offline').length;
-    return `<div class="section-title">All buses · ${running} active</div>` + snap.map(b => `
-      <button class="card ${b.status === 'offline' ? 'is-off' : ''}" data-id="${b.id}">
-        <span class="badge ${b.status}">${b.id}</span>
-        <span>
-          <h3>${b.routeName}</h3>
-          <span class="route">${b.noRoute ? '<b>Waiting for admin to assign a route</b>' : `<b>${short(b.from)}</b><span class="arrow">→</span><b>${short(b.to)}</b>`}</span>
-          <span class="pill ${b.status}" style="margin-top:6px">${STATUS[b.status]}${b.atStop && b.status === 'stopped' ? ' · ' + b.atStop : ''}</span>
+  /* ---------- routes list ---------- */
+  function routesView() {
+    const routes = Feed.routes;
+    if (!routes.length && !snap.length) return '<p class="section-title">No routes have been set up yet.</p>';
+    const live = snap.filter(b => b.status !== 'offline').length;
+    let html = `<div class="section-title">Routes · ${live} bus${live === 1 ? '' : 'es'} live</div>`;
+    html += routes.map(r => {
+      const list = busesOn(r.id), b = bestBus(list);
+      const origin = r.stops[0]?.name || r.name;
+      const liveLine = !b ? '<span class="muted-s">No bus assigned yet</span>'
+        : b.status === 'offline' ? `<span class="pill offline">Bus ${esc(b.id)} · Offline</span>`
+        : `<span class="pill ${b.status}">Bus ${esc(b.id)} · ${STATUS[b.status]}</span><span class="muted-s">${dirText(b)}${b.destEtaText !== '—' ? ' · ' + b.destEtaText : ''}</span>`;
+      const sched = b ? schedLine(b) : '';
+      return `<button class="rcard" data-route="${esc(r.id)}" style="--route:${esc(r.color)}">
+        <span class="rbar"></span>
+        <span class="rmain">
+          <h3>${esc(r.name)}</h3>
+          <span class="rsub">${esc(short(origin))} <span class="arrow">⇄</span> Campus${list.length ? ` · Bus ${list.map(x => esc(x.id)).join(', ')}` : ''}</span>
+          ${sched ? `<span class="rsched">${ICON_CLOCK}${sched}</span>` : ''}
+          <span class="rlive">${liveLine}</span>
         </span>
-        <span class="eta"><strong>${b.destEtaText}</strong><small>${b.status === 'offline' ? (b.noData ? 'No data' : lastSeen(b)) : (b.noRoute ? '' : 'to destination')}</small></span>
-      </button>`).join('');
+        <span class="chev">${ICON_CHEV}</span>
+      </button>`;
+    }).join('');
+    const loose = snap.filter(b => !b.routeId);
+    if (loose.length) html += `<div class="section-title">Other buses</div>` + loose.map(b => `
+      <button class="rcard" data-bus="${esc(b.id)}" style="--route:#9aa29b"><span class="rbar"></span>
+        <span class="rmain"><h3>Bus ${esc(b.id)}</h3><span class="rsub">No route assigned yet</span><span class="rlive"><span class="pill ${b.status}">${STATUS[b.status]}</span></span></span>
+        <span class="chev">${ICON_CHEV}</span></button>`).join('');
+    return html;
   }
 
-  function detail(b) {
-    const back = `<button class="ghost back" data-back>${ICON_BACK} All buses</button>`;
-    if (!b) return '';
-    const head = `<div class="d-head"><span class="badge ${b.status}">${b.id}</span><div><h2>Bus ${b.id} · ${b.routeName}</h2><span class="pill ${b.status}">${STATUS[b.status]}${b.atStop && b.status === 'stopped' ? ' · ' + b.atStop : ''}</span> ${dirTag(b)}</div></div>`;
-    if (b.noData) return back + head + `<p class="section-title">No location received from this bus yet.</p>`;
-    if (b.noRoute) return back + head + `<p class="section-title">No route assigned yet. Live position is shown on the map.</p>`;
+  /* ---------- one route ---------- */
+  function routeView() {
+    const back = `<button class="ghost back" data-back>${ICON_BACK} All routes</button>`;
+    const r = view.routeId && Feed.routes.find(x => x.id === view.routeId);
+    const list = r ? busesOn(r.id) : snap.filter(b => b.id === view.busId);
+    const b = list.find(x => x.id === view.busId) || bestBus(list);
+    const title = r ? esc(r.name) : `Bus ${esc(view.busId)}`;
+    let html = back + `<div class="r-head" style="--route:${r ? esc(r.color) : '#9aa29b'}"><span class="rbar"></span><div><h2>${title}</h2>
+      <span class="rsub">${r ? `${esc(short(r.stops[0].name))} <span class="arrow">⇄</span> IUBAT Campus` : 'No route assigned yet'}</span></div></div>`;
+    if (list.length > 1) html += `<div class="seg" role="tablist">${list.map(x => `<button role="tab" data-bus="${esc(x.id)}" aria-selected="${x.id === b.id}"><i class="dot ${x.status === 'running' ? 'run' : x.status === 'stopped' ? 'stop' : 'off'}"></i>Bus ${esc(x.id)}</button>`).join('')}</div>`;
+    if (!b) return html + `<p class="muted-p">No bus is assigned to this route yet.</p>` + (r ? stopsOnly(r) : '');
+    const sched = schedLine(b);
+    if (sched) html += `<div class="sched">${ICON_CLOCK}<span>${sched}</span></div>`;
+    return html + busDetail(b, r);
+  }
+  const stopsOnly = r => `<div class="section-title">Route stops</div><ol class="timeline">${r.stops.map(s => `<li class="upcoming"><i></i><div class="nm"><span>${esc(s.name)}</span></div></li>`).join('')}</ol>`;
+
+  function busDetail(b, r) {
+    const head = `<div class="d-head"><span class="badge ${b.status}">${esc(b.id)}</span><div><h2>Bus ${esc(b.id)}</h2><span class="pill ${b.status}">${STATUS[b.status]}${b.atStop && b.status === 'stopped' ? ' · ' + esc(b.atStop) : ''}</span>${(b.noRoute || b.noData) ? '' : ` <span class="pill dir">${dirText(b)}</span>`}</div></div>`;
+    if (b.noData) return head + `<p class="muted-p">This bus has not sent its location yet. It appears here as soon as the driver's phone starts sharing.</p>` + (r ? stopsOnly(r) : '');
+    if (b.noRoute) return head + `<p class="muted-p">No route assigned yet. Live position is shown on the map.</p>`;
     const off = b.status === 'offline';
-    const next = off ? 'Offline' : (b.nextStop ? b.nextStop.name : 'Arrived');
-    return `${back}${head}
+    const next = off ? 'Offline' : (b.nextStop ? esc(b.nextStop.name) : 'Arrived');
+    return `${head}
       <div class="journey">
         <div class="j-ends">
-          <div><small>From</small><b>${b.from}</b></div>
-          <div class="to"><small>To</small><b>${b.to}</b></div>
+          <div><small>From</small><b>${esc(b.from)}</b></div>
+          <div class="to"><small>To</small><b>${esc(b.to)}</b></div>
         </div>
         <div class="track" aria-hidden="true">
           <div class="fill" style="width:${(b.progress * 100).toFixed(1)}%"></div>
           <div class="bus" style="left:${(b.progress * 100).toFixed(1)}%">${ICON_BUS}</div>
         </div>
-        <div class="j-foot">${off ? '<b>No signal</b> · ' + lastSeen(b) : '<b>' + (b.inbound ? 'Heading to campus' : 'Leaving campus') + '</b>'}</div>
+        <div class="j-foot">${off ? '<b>No signal</b> · last seen ' + lastSeen(b) : '<b>' + (b.inbound ? 'Heading to campus' : 'Leaving campus') + '</b>'}</div>
       </div>
-
       <div class="stats">
         <div class="stat hot"><small>Arrives in</small><strong>${b.destEtaText}</strong></div>
         <div class="stat warm"><small>Next stop</small><strong style="font-size:16px">${next}</strong>${!off && b.nextStop ? `<em> · ${b.nextEtaText}</em>` : ''}</div>
         <div class="stat"><small>Speed</small><strong>${b.speedKmh} <em>km/h</em></strong></div>
         <div class="stat"><small>Last update</small><strong style="font-size:16px">${lastSeen(b)}</strong></div>
       </div>
-
       <div class="section-title">Route stops</div>
       <ol class="timeline">
         ${b.stops.map(s => `
           <li class="${s.state}">
             <i></i>
-            <div class="nm"><span>${s.name}${s.state === 'here' ? ' <span class="tag">Here</span>' : ''}${s.state === 'next' ? ' <span class="tag">Next</span>' : ''}</span>
+            <div class="nm"><span>${esc(s.name)}${s.state === 'here' ? ' <span class="tag">Here</span>' : ''}${s.state === 'next' ? ' <span class="tag">Next</span>' : ''}</span>
               <span class="tm">${s.state === 'passed' ? 'Passed' : s.state === 'here' ? 'Now' : off ? '' : fmt(s.etaMin)}</span></div>
           </li>`).join('')}
       </ol>`;

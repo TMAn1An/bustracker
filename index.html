@@ -90,6 +90,7 @@
     </div>
     <div class="top-right">
       <span class="live"><i></i> LIVE</span>
+      <button class="bell" id="bell" aria-label="Notices" title="Notices"><svg class="i" viewBox="0 0 24 24"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><b id="bellCount" hidden></b></button>
       <span class="user" id="userChip">Student</span>
       <button class="ghost light" id="logout">Sign out</button>
     </div>
@@ -98,7 +99,7 @@
   <div class="layout">
     <aside class="panel" id="panel">
       <button class="handle" id="handle" aria-label="Expand or collapse panel"><span></span></button>
-      <div class="chips" id="chips" role="tablist" aria-label="Bus number"></div>
+      <div class="notices" id="notices" aria-live="polite"></div>
       <div class="panel-body" id="panelBody"></div>
     </aside>
 
@@ -120,6 +121,7 @@
         <span><i class="dot off"></i> Offline</span>
       </div>
       <div class="conn" id="conn" hidden>Connection lost, retrying&hellip;</div>
+      <div class="ntoast" id="ntoast" role="status" hidden></div>
     </section>
   </div>
 </div>

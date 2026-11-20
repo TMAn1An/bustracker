@@ -10,7 +10,7 @@
   class BusMap {
     constructor(el, { routes, campus, onSelect }) {
       this.routes = routes; this.campus = campus; this.onSelect = onSelect;
-      this.selected = null; this.follow = false; this.buses = new Map(); this.stopMarks = [];
+      this.selected = null; this.selectedRoute = null; this.follow = false; this.buses = new Map(); this.stopMarks = [];
       this.pad = { top: 0, bottom: 0, left: 0, right: 0 };
       this.map = new maplibregl.Map({
         container: el, style: STYLE, center: [campus.lng, campus.lat], zoom: 11.6, pitch: 55, bearing: -15,
@@ -55,7 +55,7 @@
 
     _highlight() {
       const m = this.map; if (!m.getLayer('route-line')) return;
-      const sel = this.selected && this.buses.get(this.selected)?.routeId;
+      const sel = this.selectedRoute || (this.selected && this.buses.get(this.selected)?.routeId);
       m.setPaintProperty('route-line', 'line-opacity', sel ? ['case', ['==', ['get', 'id'], sel], 1, .22] : .6);
       m.setPaintProperty('route-line', 'line-width', ['interpolate', ['linear'], ['zoom'], 9, 2.5, 15, sel ? ['case', ['==', ['get', 'id'], sel], 10, 4] : 7]);
       m.setPaintProperty('route-casing', 'line-opacity', sel ? ['case', ['==', ['get', 'id'], sel], .95, .25] : .85);
@@ -83,7 +83,7 @@
           e = { el, marker: new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -4] }).setLngLat([b.lng, b.lat]).addTo(this.map) };
           this.buses.set(b.id, e);
         }
-        e.routeId = b.routeId; e.lng = b.lng; e.lat = b.lat;
+        e.routeId = b.routeId; e.lng = b.lng; e.lat = b.lat; e.live = b.status !== 'offline';
         e.marker.setLngLat([b.lng, b.lat]);
         e.el.className = 'bus-pin ' + b.status + (b.id === this.selected ? ' sel' : '');
         e.el.style.setProperty('--route', b.color);
@@ -107,7 +107,23 @@
       return { type: 'Feature', properties: { h: 3.3, color: b.status === 'offline' ? '#b9bfb6' : '#f2b705' }, geometry: { type: 'Polygon', coordinates: [c] } };
     }
 
+    /** Focus a route: highlight it, follow its live bus if there is one, otherwise show the whole route. */
+    selectRoute(routeId, busId) {
+      this.selectedRoute = routeId; this.selected = busId || null; this.follow = false;
+      this._highlight(); this._stopLabels();
+      const e = busId && this.buses.get(busId);
+      if (e && e.live) {
+        this._followAfterMove(busId);
+        this.map.flyTo({ center: [e.lng, e.lat], zoom: Math.max(this.map.getZoom(), 15), pitch: 55, speed: 1.2, padding: this.pad, essential: true });
+        return;
+      }
+      const r = this.routes.find(x => x.id === routeId); if (!r) return;
+      const b = r.geometry.reduce((bb, p) => bb.extend(p), new maplibregl.LngLatBounds(r.geometry[0], r.geometry[0]));
+      this.map.fitBounds(b, { padding: { top: 60, left: 60, right: 80, bottom: 60 + (this.pad.bottom || 0) }, pitch: 40, duration: 900, maxZoom: 15 });
+    }
+
     select(id) {
+      this.selectedRoute = null;
       this.selected = id; this._highlight(); this._stopLabels();
       const e = id && this.buses.get(id);
       this.follow = false;
@@ -126,8 +142,8 @@
 
     _stopLabels() {
       this.stopMarks.forEach(m => m.remove()); this.stopMarks = [];
-      const e = this.selected && this.buses.get(this.selected); if (!e) return;
-      const r = this.routes.find(x => x.id === e.routeId); if (!r) return;
+      const rid = this.selectedRoute || (this.selected && this.buses.get(this.selected)?.routeId);
+      const r = rid && this.routes.find(x => x.id === rid); if (!r) return;
       r.stops.filter(s => !s.name.startsWith('IUBAT')).forEach(s => {
         const el = document.createElement('div'); el.className = 'stop-pill'; el.textContent = s.name; el.style.setProperty('--route', r.color);
         this.stopMarks.push(new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -10] }).setLngLat([s.lng, s.lat]).addTo(this.map));

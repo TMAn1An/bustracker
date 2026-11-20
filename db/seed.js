@@ -5,10 +5,10 @@
 // Remove dummy student: node db/seed.js --remove-dummy
 import { readFileSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
-import { db, SCHEMA, hashPassword, sha256, buildGeometry, bumpRev } from '../api/_lib.js';
+import { db, hashPassword, sha256, buildGeometry, bumpRev, ensureSchema } from '../api/_lib.js';
 
 const c = db();
-for (const sql of SCHEMA) await c.execute(sql);
+await ensureSchema();
 const args = process.argv.slice(2);
 const after = f => args[args.indexOf(f) + 1];
 
@@ -40,7 +40,8 @@ if (!hasRoute) {
 }
 if (!(await c.execute(`SELECT id FROM buses WHERE id='11'`)).rows[0]) {
   const t = randomBytes(18).toString('base64url');
-  await c.execute({ sql: 'INSERT INTO buses (id, route_id, token_hash) VALUES (?,?,?)', args: ['11', 'rajendrapur', sha256(t)] });
+  // schedule from the printed "Stoppage Wise Bus Reporting Schedule": leaves 6:30 AM, leaves campus 5:40 PM (Sat–Wed)
+  await c.execute({ sql: 'INSERT INTO buses (id, route_id, token_hash, depart_start, depart_campus, days) VALUES (?,?,?,?,?,?)', args: ['11', 'rajendrapur', sha256(t), '06:30', '17:40', 'Sat–Wed'] });
   writeFileSync(new URL('../.bus-tokens.json', import.meta.url), JSON.stringify({ 11: t }, null, 1));
   console.log('Bus 11 created. Tracker token saved to .bus-tokens.json (git-ignored)');
 }

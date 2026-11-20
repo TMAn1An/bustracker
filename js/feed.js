@@ -33,7 +33,7 @@
   }
 
   const Feed = {
-    campus: null, routes: [], rev: null, offset: 0, ok: true, onAuthFail: () => {}, onStatus: () => {}, onRoutes: () => {},
+    campus: null, routes: [], notices: [], rev: null, offset: 0, ok: true, onAuthFail: () => {}, onStatus: () => {}, onRoutes: () => {},
     state: new Map(), token: null, timer: null,
 
     /** Load routes and bus->route assignment (needs a signed-in token). Safe to call again when `rev` changes. */
@@ -50,9 +50,11 @@
         const r = routes.find(x => x.id === b.routeId) || null, prev = old.get(b.id);
         next.set(b.id, { id: b.id, r, fix: prev?.fix || null, dir: prev?.dir ?? 1, ema: prev?.ema ?? 22 / 3.6, disp: prev?.disp || null, routeChanged: prev && prev.r !== r });
         const st = next.get(b.id);
+        st.schedule = { departStart: b.departStart, departCampus: b.departCampus, days: b.days };
         if (st.routeChanged && st.fix) { st.fix = null; st.disp = null; } // re-match on the next fix
       });
       this.state = next;
+      this.notices = (j.notices || []).map(n => ({ ...n, expiresLocal: n.expiresAt ? n.expiresAt - (j.now - Date.now()) : null }));
       this.onRoutes(this);
     },
 
@@ -120,7 +122,8 @@
     },
 
     /** Full info for the UI (called once a second) */
-    snapshot() { return [...this.state.values()].map(st => this._describe(st)); },
+    snapshot() { return [...this.state.values()].map(st => ({ ...this._describe(st), routeId: st.r ? st.r.id : null, schedule: st.schedule })); },
+    activeNotices() { const now = Date.now(); return this.notices.filter(n => !n.expiresLocal || n.expiresLocal > now); },
     busList() { return [...this.state.keys()]; },
 
     _describe(st) {

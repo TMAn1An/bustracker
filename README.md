@@ -1,7 +1,8 @@
 # IUBAT Bus Tracker
 
-Students sign in and see live bus locations on a 3D map: bus number, where it is coming from / going to (both
-inbound to campus and outbound from campus), and the estimated arrival time. Admins manage buses, routes and stops.
+Students sign in, see **all routes**, and tap a route to follow its bus live on a 3D map: where it is coming from / going to
+(both inbound to campus and outbound from campus), next stop, arrival time and the departure schedule.
+Admins manage buses (number, route, departure times), routes and stops, and publish **notices** that appear in every student app within seconds.
 
 ```
 Bus phone (Android) --GPS every 3+ s--> /api/track --> Turso (one row per bus)
@@ -24,7 +25,7 @@ Demo admin (local only): `admin` / `admin1234`.
 | Path | What |
 |---|---|
 | `/` | Student app (sign in, bus list, bus detail, 3D map) |
-| `/admin/` | Admin dashboard: **Buses** (number, route, tracker token) and **Routes** (stops on a map, saved snapped to roads) |
+| `/admin/` | Admin dashboard: **Buses** (number, route, departure times, tracker token), **Routes** (stops on a map, saved snapped to roads), **Notices** (broadcast to all apps, optional expiry) |
 | `/tracker/` | Lightweight page for the bus phone (geolocation + wake lock). Or use the **Traccar Client** app: Server URL `https://<site>/api/osmand`, device identifier = bus token |
 
 ## Admin: how to set up a bus
@@ -49,4 +50,5 @@ node db/seed.js --students students.csv       # columns: id,name,password
 
 ## Known limitations / next
 - Student login uses **one dummy account** for the prototype (`--remove-dummy` deletes it). When the university provides its student database, only `verifyStudent()` in `api/_students.js` needs to change (nothing else depends on where students are stored).
+- Notices show inside the app (live, no reload). Push notifications to phones when the app is closed (Web Push) are not built yet.
 - A browser page on the bus phone can be paused by Android when the screen is off; keep it charging with screen on, or use Traccar Client.

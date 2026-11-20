@@ -25,11 +25,30 @@ export const SCHEMA = [
      speed REAL, heading REAL, acc REAL, ts INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)`,
   `CREATE TABLE IF NOT EXISTS login_attempts (key TEXT PRIMARY KEY, fails INTEGER NOT NULL, locked_until INTEGER NOT NULL, last INTEGER NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS notices (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT NOT NULL, level TEXT NOT NULL DEFAULT 'info',
+     created_at INTEGER NOT NULL, expires_at INTEGER)`,
+];
+// Columns added after the first release (applied to existing databases; "duplicate column" errors are ignored).
+const MIGRATIONS = [
+  `ALTER TABLE buses ADD COLUMN depart_start TEXT`,   // e.g. "06:30" — leaves the first stop
+  `ALTER TABLE buses ADD COLUMN depart_campus TEXT`,  // e.g. "17:40" — leaves campus
+  `ALTER TABLE buses ADD COLUMN days TEXT`,           // e.g. "Sat–Wed"
 ];
 
 // Create any missing tables once per serverless instance (cheap: CREATE TABLE IF NOT EXISTS).
 let _schema;
-export function ensureSchema() { return (_schema ||= db().batch(SCHEMA, 'write').catch(e => { _schema = null; throw e; })); }
+export function ensureSchema() {
+  return (_schema ||= (async () => {
+    await db().batch(SCHEMA, 'write');
+    for (const m of MIGRATIONS) { try { await db().execute(m); } catch (e) { if (!/duplicate column/i.test(e.message)) throw e; } }
+  })().catch(e => { _schema = null; throw e; }));
+}
+
+/** Active notices, newest first. */
+export async function activeNotices() {
+  const r = await db().execute({ sql: 'SELECT id, message, level, created_at, expires_at FROM notices WHERE expires_at IS NULL OR expires_at > ? ORDER BY created_at DESC LIMIT 20', args: [Date.now()] });
+  return r.rows.map(n => ({ id: n.id, message: n.message, level: n.level, createdAt: n.created_at, expiresAt: n.expires_at }));
+}
 
 /** Bump the config revision so clients reload routes/buses. */
 export async function bumpRev() {
