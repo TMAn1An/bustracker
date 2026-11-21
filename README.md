@@ -47,6 +47,13 @@ Every fix is checked on the server (`api/share.js`) before anyone else sees it:
 Limitation: a fake-GPS app that imitates a moving bus along the route cannot be fully detected from a web app; the rules above, first-verified-wins and admin blocking limit the damage.
 Test locally: `npm run dev`, then `node scripts/simulate-crowd.js` (five simulated riders: honest, at home, off route, jumping, conflicting).
 
+## 3D buses and timetable estimates
+- Buses are drawn as real 3D models (yellow IUBAT bus with windows, wheels, red stripe and lights) using three.js inside a MapLibre
+  custom layer (`js/bus3d.js`). three.js loads after the map is ready; if it cannot load, simple 3D boxes are shown instead.
+- When a bus has **no live signal**, the app estimates where it should be from its timetable (departure time and days set in the admin
+  dashboard, Bangladesh time, about 22 km/h along the route). It is clearly labelled **Estimated** with `~` on times and a note,
+  and any live signal (bus phone or rider) replaces it immediately.
+
 ## Login protection
 5 wrong passwords on one account lock it for 5 minutes (the wait doubles on further failures, max 60 min); 20 failures from one IP lock that IP the same way. A correct login resets the counter.
 

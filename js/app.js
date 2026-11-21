@@ -10,7 +10,7 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
   };
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const STATUS = { running: 'Running', stopped: 'Stopped', offline: 'Offline' };
+  const STATUS = { running: 'Running', stopped: 'Stopped', offline: 'Offline', estimated: 'Estimated' };
   const isMobile = () => matchMedia('(max-width: 860px)').matches;
   const ICON_BUS = '<svg class="i" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="15" rx="3"/><path d="M4 11h16M8 18v2M16 18v2"/><circle cx="8.5" cy="14.5" r=".6" fill="currentColor"/><circle cx="15.5" cy="14.5" r=".6" fill="currentColor"/></svg>';
   const ICON_BACK = '<svg class="i" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>';
@@ -136,7 +136,7 @@
   function busesOn(routeId) { return snap.filter(b => b.routeId === routeId); }
   // pick the most useful bus on a route: live first, then most recently seen
   function bestBus(list) {
-    const rank = b => (b.status === 'running' ? 0 : b.status === 'stopped' ? 1 : 2);
+    const rank = b => ({ running: 0, stopped: 1, estimated: 2 }[b.status] ?? 3);
     return list.slice().sort((a, b) => rank(a) - rank(b) || (a.lastUpdateSec ?? 1e9) - (b.lastUpdateSec ?? 1e9))[0];
   }
   function openRoute(routeId, busId) {
@@ -233,7 +233,7 @@
     if (!Feed.crowdEnabled || b.noRoute || Share.active) return '';
     return `<div class="sharecta"><div><b>On this bus?</b><p>Share your phone's location so everyone can see where Bus ${esc(b.id)} is${b.status === 'offline' ? ' (it has no live signal right now)' : ''}.</p></div><button class="btn primary sm" data-share="${esc(b.id)}">Share location</button></div>`;
   }
-  const srcText = b => (b.source === 'crowd' ? 'via a rider on board' : 'via bus GPS');
+  const srcText = b => (b.source === 'crowd' ? 'via a rider on board' : b.source === 'schedule' ? 'estimated from the timetable' : 'via bus GPS');
 
   /* ---------- routes list ---------- */
   function routesView() {
@@ -246,6 +246,7 @@
       const origin = r.stops[0]?.name || r.name;
       const liveLine = !b ? '<span class="muted-s">No bus assigned yet</span>'
         : b.status === 'offline' ? `<span class="pill offline">Bus ${esc(b.id)} · Offline</span>`
+        : b.status === 'estimated' ? `<span class="pill estimated">Bus ${esc(b.id)} · Estimated</span><span class="muted-s">${dirText(b)} · ${b.destEtaText}</span>`
         : `<span class="pill ${b.status}">Bus ${esc(b.id)} · ${STATUS[b.status]}</span><span class="muted-s">${dirText(b)}${b.destEtaText !== '—' ? ' · ' + b.destEtaText : ''}</span>`;
       const sched = b ? schedLine(b) : '';
       return `<button class="rcard" data-route="${esc(r.id)}" style="--route:${esc(r.color)}">
@@ -276,7 +277,7 @@
     const title = r ? esc(r.name) : `Bus ${esc(view.busId)}`;
     let html = back + `<div class="r-head" style="--route:${r ? esc(r.color) : '#9aa29b'}"><span class="rbar"></span><div><h2>${title}</h2>
       <span class="rsub">${r ? `${esc(short(r.stops[0].name))} <span class="arrow">⇄</span> IUBAT Campus` : 'No route assigned yet'}</span></div></div>`;
-    if (list.length > 1) html += `<div class="seg" role="tablist">${list.map(x => `<button role="tab" data-bus="${esc(x.id)}" aria-selected="${x.id === b.id}"><i class="dot ${x.status === 'running' ? 'run' : x.status === 'stopped' ? 'stop' : 'off'}"></i>Bus ${esc(x.id)}</button>`).join('')}</div>`;
+    if (list.length > 1) html += `<div class="seg" role="tablist">${list.map(x => `<button role="tab" data-bus="${esc(x.id)}" aria-selected="${x.id === b.id}"><i class="dot ${({ running: 'run', stopped: 'stop', estimated: 'est' })[x.status] || 'off'}"></i>Bus ${esc(x.id)}</button>`).join('')}</div>`;
     if (!b) return html + `<p class="muted-p">No bus is assigned to this route yet.</p>` + (r ? stopsOnly(r) : '');
     const sched = schedLine(b);
     if (sched) html += `<div class="sched">${ICON_CLOCK}<span>${sched}</span></div>`;
@@ -288,9 +289,10 @@
     const head = `<div class="d-head"><span class="badge ${b.status}">${esc(b.id)}</span><div><h2>Bus ${esc(b.id)}</h2><span class="pill ${b.status}">${STATUS[b.status]}${b.atStop && b.status === 'stopped' ? ' · ' + esc(b.atStop) : ''}</span>${(b.noRoute || b.noData) ? '' : ` <span class="pill dir">${dirText(b)}</span>`}</div></div>`;
     if (b.noData) return head + shareCta(b) + `<p class="muted-p">No live location yet. It appears as soon as the bus phone or a rider on board shares.</p>` + (r ? stopsOnly(r) : '');
     if (b.noRoute) return head + `<p class="muted-p">No route assigned yet. Live position is shown on the map.</p>`;
-    const off = b.status === 'offline';
+    const off = b.status === 'offline', est = b.status === 'estimated';
     const next = off ? 'Offline' : (b.nextStop ? esc(b.nextStop.name) : 'Arrived');
-    return `${head}
+    const estNote = est ? `<div class="estnote"><b>No live signal right now.</b> This position is estimated from the timetable (left ${esc(short(b.from))} at ${t12(b.estDepart)}, assuming about 22 km/h). The real bus may be ahead or behind.</div>` : '';
+    return `${head}${estNote}
       <div class="journey">
         <div class="j-ends">
           <div><small>From</small><b>${esc(b.from)}</b></div>
@@ -306,8 +308,8 @@
       <div class="stats">
         <div class="stat hot"><small>Arrives in</small><strong>${b.destEtaText}</strong></div>
         <div class="stat warm"><small>Next stop</small><strong style="font-size:16px">${next}</strong>${!off && b.nextStop ? `<em> · ${b.nextEtaText}</em>` : ''}</div>
-        <div class="stat"><small>Speed</small><strong>${b.speedKmh} <em>km/h</em></strong></div>
-        <div class="stat"><small>Last update</small><strong style="font-size:16px">${lastSeen(b)}</strong></div>
+        <div class="stat"><small>Speed</small><strong>${est ? '—' : `${b.speedKmh} <em>km/h</em>`}</strong></div>
+        <div class="stat"><small>${est ? 'Last live signal' : 'Last update'}</small><strong style="font-size:16px">${lastSeen(b)}</strong></div>
       </div>
       <div class="section-title">Route stops</div>
       <ol class="timeline">

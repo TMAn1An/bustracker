@@ -313,3 +313,12 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
   background: #fff; border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: 10px; padding: 10px 16px; font-size: 14px; color: var(--ink-2); }
 .map-msg.err { border-color: #f3dc9b; background: #fffaf0; }
 @media (max-width: 860px) { .map-msg { top: 30%; } }
+
+/* ---------- Estimated (timetable) ---------- */
+.pill.estimated { background: #f1ecfb; color: #5b3fa0; }
+.dot.est { background: transparent; border: 2px dashed #7a5cc7; width: 10px; height: 10px; }
+.badge.estimated { background: #f5f1fc; color: #5b3fa0; border-color: #e4dbf6; } .badge.estimated::after { background: #7a5cc7; }
+.estnote { font-size: 13.5px; line-height: 1.5; color: #4a3a73; background: #f7f4fd; border: 1px solid #e4dbf6; border-radius: 10px; padding: 10px 12px; margin: -4px 0 12px; }
+.bus-pin.estimated b { background: #fff; color: #5b3fa0; border: 1.5px dashed #7a5cc7; }
+.bus-pin.estimated b::before { background: #7a5cc7; }
+.bus-pin.estimated b::after { content: "~"; margin-left: -2px; font-weight: 600; }

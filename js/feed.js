@@ -11,6 +11,34 @@
   const fmtMin = m => (m < 1 ? 'Now' : Math.ceil(m) + ' min');
   const angDiff = (a, b) => ((a - b + 540) % 360) - 180;
 
+  // ---- timetable estimate (used only when there is no live signal) ----
+  const EST_KMH = 22, STOP_MIN = 0.5;
+  const DAY = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+  /** "Sat–Wed", "Sun-Thu", "Sat, Mon", "Every day" -> Set of weekday numbers (null = every day / unknown) */
+  function parseDays(text) {
+    const t = String(text || '').toLowerCase().trim();
+    if (!t || /every|daily|all/.test(t)) return null;
+    const out = new Set();
+    for (const part of t.split(/[,/]+/)) {
+      const m = part.trim().match(/^([a-z]{3})[a-z]*\s*(?:[-–—]|to)?\s*([a-z]{3})?[a-z]*$/);
+      if (!m || !(m[1] in DAY) || (m[2] && !(m[2] in DAY))) return null; // can't read it: don't restrict
+      let a = DAY[m[1]]; const b = m[2] ? DAY[m[2]] : a;
+      for (let i = 0; i < 7; i++) { out.add(a); if (a === b) break; a = (a + 1) % 7; }
+    }
+    return out;
+  }
+  /** Bangladesh time (UTC+6, no daylight saving): weekday and minutes since midnight */
+  function dhaka(ms) { const d = new Date(ms + 6 * 3600e3); return { day: d.getUTCDay(), min: d.getUTCHours() * 60 + d.getUTCMinutes() + d.getUTCSeconds() / 60 }; }
+  const hm = v => { const m = /^(\d{1,2}):(\d{2})$/.exec(v || ''); return m ? +m[1] * 60 + +m[2] : null; };
+  /** Position on the route at distance s (metres from the first stop): { lng, lat, bearing } */
+  function pointAt(r, s) {
+    s = Math.max(0, Math.min(r.length, s));
+    let i = 1; while (i < r.cum.length - 1 && r.cum[i] < s) i++;
+    const t = (s - r.cum[i - 1]) / ((r.cum[i] - r.cum[i - 1]) || 1), [ax, ay] = r.xy[i - 1], [bx, by] = r.xy[i];
+    const [lng, lat] = ll(ax + (bx - ax) * t, ay + (by - ay) * t);
+    return { lng, lat, bearing: (Math.atan2(bx - ax, by - ay) / rad + 360) % 360 };
+  }
+
   function prep(r, campus) {
     r.stops = [...r.stops, { name: campus.name, lat: campus.lat, lng: campus.lng }].map(x => ({ ...x }));
     r.xy = r.geometry.map(([lng, lat]) => xy(lng, lat));
@@ -103,17 +131,45 @@
       if (!st.disp) st.disp = { lng, lat, heading: st.fix.tHead };
     },
 
-    /** Call every frame: smoothed positions */
+    /** Call every frame: smoothed positions (live fix, else timetable estimate, else last known) */
     positions(dt) {
       const k = 1 - Math.exp(-dt / 0.9), out = [];
       this.state.forEach((st, id) => {
-        if (!st.fix || !st.disp) return;
-        const d = st.disp, f = st.fix;
-        d.lng += (f.tLng - d.lng) * k; d.lat += (f.tLat - d.lat) * k;
-        d.heading = (d.heading + angDiff(f.tHead, d.heading) * k + 360) % 360;
-        out.push({ id, lng: d.lng, lat: d.lat, heading: d.heading, color: st.r ? st.r.color : '#6b766f', routeId: st.r ? st.r.id : null, status: this._status(st) });
+        let status = this._status(st), tLng, tLat, tHead;
+        const est = status === 'offline' ? this._estimate(st) : null;
+        if (est) { status = 'estimated'; tLng = est.lng; tLat = est.lat; tHead = est.heading; }
+        else if (st.fix) { tLng = st.fix.tLng; tLat = st.fix.tLat; tHead = st.fix.tHead; }
+        else return;
+        if (!st.disp) st.disp = { lng: tLng, lat: tLat, heading: tHead };
+        const d = st.disp;
+        d.lng += (tLng - d.lng) * k; d.lat += (tLat - d.lat) * k;
+        d.heading = (d.heading + angDiff(tHead, d.heading) * k + 360) % 360;
+        out.push({ id, lng: d.lng, lat: d.lat, heading: d.heading, color: st.r ? st.r.color : '#6b766f', routeId: st.r ? st.r.id : null, status });
       });
       return out;
+    },
+
+    /** Where the timetable says the bus should be now, or null outside its trips. Cached for 1 s. */
+    _estimate(st) {
+      const now = Date.now();
+      if (st.estAt && now - st.estAt < 1000) return st.est;
+      st.estAt = now; st.est = null;
+      const r = st.r, sc = st.schedule;
+      if (!r || !sc) return null;
+      const t = dhaka(now + this.offset), days = parseDays(sc.days);
+      if (days && !days.has(t.day)) return null;
+      const tripMin = (r.length / 1000) / EST_KMH * 60 + Math.max(0, r.stops.length - 2) * STOP_MIN;
+      for (const [dep, dir] of [[hm(sc.departStart), 1], [hm(sc.departCampus), -1]]) {
+        if (dep == null) continue;
+        const el = t.min - dep;
+        if (el < 0 || el > tripMin) continue;
+        const along = r.length * (el / tripMin), sPos = dir > 0 ? along : r.length - along;
+        const p = pointAt(r, sPos);
+        st.est = { s: sPos, dir, v: EST_KMH / 3.6, lng: p.lng, lat: p.lat, heading: dir > 0 ? p.bearing : (p.bearing + 180) % 360,
+          depart: dir > 0 ? sc.departStart : sc.departCampus };
+        return st.est;
+      }
+      return null;
     },
 
     _age(st) { return st.fix ? Math.max(0, (Date.now() + this.offset - st.fix.ts) / 1000) : Infinity; },
@@ -132,17 +188,19 @@
       if (!r) return { id: st.id, routeName: 'No route assigned', color: '#6b766f', status, noRoute: true, from: '—', to: '—', toCampus: true, speedKmh: f ? Math.round((f.speed || 0) * 3.6) : 0,
         progress: 0, nextStop: null, destEta: 0, destEtaText: '—', nextEtaText: '—', atStop: null, stops: [], noData: !f,
         lastUpdateSec: f ? Math.round(this._age(st)) : null, lng: f?.lng, lat: f?.lat };
-      const travel = st.dir > 0 ? r.stops : r.stops.slice().reverse();
+      const est = status === 'offline' ? this._estimate(st) : null;
+      const dir = est ? est.dir : st.dir;
+      const travel = dir > 0 ? r.stops : r.stops.slice().reverse();
       const from = travel[0].name, to = travel[travel.length - 1].name;
-      const base = { id: st.id, routeId: r.id, routeName: r.name, color: r.color, status, from, to,
-        toCampus: st.dir > 0, inbound: st.dir > 0, speedKmh: 0, progress: 0, nextStop: null, destEta: 0, destEtaText: '—',
+      const base = { id: st.id, routeId: r.id, routeName: r.name, color: r.color, status: est ? 'estimated' : status, from, to,
+        toCampus: dir > 0, inbound: dir > 0, estimated: !!est, estDepart: est ? est.depart : null, speedKmh: 0, progress: 0, nextStop: null, destEta: 0, destEtaText: '—',
         nextEtaText: '—', atStop: null, lastUpdateSec: null,
         stops: travel.map(s => ({ name: s.name, state: 'upcoming', etaMin: 0 })) };
-      if (!f) return { ...base, noData: true };
+      if (!f && !est) return { ...base, noData: true };
 
-      const s = f.s, age = this._age(st);
-      const v = Math.max(15 / 3.6, Math.min(40 / 3.6, st.ema)); // ETA speed clamped to 15-40 km/h
-      const ahead = x => (st.dir > 0 ? x.s - s : s - x.s);
+      const s = est ? est.s : f.s, age = this._age(st), approx = est ? '~' : '';
+      const v = est ? est.v : Math.max(15 / 3.6, Math.min(40 / 3.6, st.ema)); // ETA speed clamped to 15-40 km/h
+      const ahead = x => (dir > 0 ? x.s - s : s - x.s);
       let nextIdx = travel.findIndex(x => ahead(x) > 25);
       const here = status === 'stopped' ? travel.find(x => Math.abs(x.s - s) < STOP_R) : null;
       const stops = travel.map((x, i) => {
@@ -154,11 +212,12 @@
       const nextStop = nextIdx === -1 ? null : stops[nextIdx];
       const destEta = nextIdx === -1 ? 0 : stops[stops.length - 1].etaMin;
       return { ...base, stops, nextStop, destEta,
-        speedKmh: status === 'offline' ? 0 : Math.round((f.speed || 0) * 3.6),
-        progress: Math.max(0, Math.min(1, (st.dir > 0 ? s : r.length - s) / r.length)),
-        destEtaText: status === 'offline' ? '—' : fmtMin(destEta),
-        nextEtaText: nextStop ? fmtMin(nextStop.etaMin) : '—',
-        atStop: here ? here.name : null, lastUpdateSec: Math.round(age), lng: f.lng, lat: f.lat, source: f.source || 'device' };
+        speedKmh: status === 'offline' || est ? 0 : Math.round((f.speed || 0) * 3.6),
+        progress: Math.max(0, Math.min(1, (dir > 0 ? s : r.length - s) / r.length)),
+        destEtaText: status === 'offline' && !est ? '—' : approx + fmtMin(destEta),
+        nextEtaText: nextStop ? approx + fmtMin(nextStop.etaMin) : '—',
+        atStop: here ? here.name : null, lastUpdateSec: f ? Math.round(age) : null,
+        lng: est ? est.lng : f.lng, lat: est ? est.lat : f.lat, source: est ? 'schedule' : (f.source || 'device') };
     },
   };
   window.Feed = Feed;

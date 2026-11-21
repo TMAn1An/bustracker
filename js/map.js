@@ -1,6 +1,6 @@
 /*
  * BusMap: MapLibre GL (OpenStreetMap data, OpenFreeMap tiles) with 3D buildings.
- * A bus = a 3D extruded box + a numbered pin.
+ * A bus = a 3D bus model (js/bus3d.js, three.js) + a numbered pin; a simple extruded box is the fallback.
  */
 (function () {
   const STYLE = 'https://tiles.openfreemap.org/styles/liberty';
@@ -17,10 +17,20 @@
         maxPitch: 75, attributionControl: { compact: true }, canvasContextAttributes: { antialias: true },
       });
       this.map.dragRotate.enable(); this.map.touchZoomRotate.enableRotation();
-      this.ready = new Promise(res => this.map.on('load', () => { this._layers(); this._campus(); res(); }));
+      this.ready = new Promise(res => this.map.on('load', () => { this._layers(); this._campus(); res(); this._models(); }));
       // stop following when the user drags the map
       this.map.on('dragstart', e => { if (e.originalEvent) this.follow = false; });
           }
+
+    // Swap the simple boxes for real 3D bus models once three.js has loaded (in the background).
+    _models() {
+      if (!window.BusModels) return;
+      BusModels.attach(this.map, () => this._modelData).then(() => {
+        this.models = true;
+        if (this.map.getLayer('bus-3d')) this.map.setLayoutProperty('bus-3d', 'visibility', 'none');
+        this.buses.forEach(e => e.marker.setOffset([0, -44]));
+      }).catch(e => console.warn('3D bus models unavailable, using simple boxes:', e.message));
+    }
 
     _layers() {
       const m = this.map;
@@ -71,6 +81,7 @@
     /** Every frame: [{id,lng,lat,heading,color,status,routeId}] */
     setBuses(list) {
       if (!this.map.getSource('buses')) return;
+      this._modelData = list;
       const seen = new Set(), feats = [];
       list.forEach(b => {
         seen.add(b.id);
@@ -80,7 +91,7 @@
           el.setAttribute('aria-label', 'Bus ' + b.id);
           el.innerHTML = `<b>${b.id}</b>`;
           el.addEventListener('click', ev => { ev.stopPropagation(); this.onSelect(b.id); });
-          e = { el, marker: new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -4] }).setLngLat([b.lng, b.lat]).addTo(this.map) };
+          e = { el, marker: new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, this.models ? -44 : -4] }).setLngLat([b.lng, b.lat]).addTo(this.map) };
           this.buses.set(b.id, e);
         }
         e.routeId = b.routeId; e.lng = b.lng; e.lat = b.lat; e.live = b.status !== 'offline';
@@ -152,9 +163,16 @@
 
     setPadding(bottom) { this.pad = { top: 0, bottom, left: 0, right: 0 }; this.map.setPadding(this.pad); }
     isTop() { return this.map.getPitch() < 20; }
-    setView(mode) { this.map.easeTo({ pitch: mode === 'top' ? 0 : 60, duration: 600 }); }
-    rotate(deg) { this.map.easeTo({ bearing: this.map.getBearing() + deg, duration: 500 }); }
-    zoom(f) { this.map.easeTo({ zoom: this.map.getZoom() + (f < 1 ? 1 : -1), duration: 300 }); }
+    setView(mode) { this._ease({ pitch: mode === 'top' ? 0 : 60, duration: 600 }); }
+    rotate(deg) { this._ease({ bearing: this.map.getBearing() + deg, duration: 500 }); }
+    zoom(f) { this._ease({ zoom: this.map.getZoom() + (f < 1 ? 1 : -1), duration: 300 }); }
+    // Following a bus moves the camera every frame, which would cancel these animations: pause it, then resume.
+    _ease(opts) {
+      const id = this.follow && this.selected;
+      this.follow = false;
+      if (id) { const e = this.buses.get(id); if (e) opts.center = [e.lng, e.lat]; this._followAfterMove(id); }
+      this.map.easeTo(opts);
+    }
     recenter() {
       const e = this.selected && this.buses.get(this.selected);
       this.follow = false;
