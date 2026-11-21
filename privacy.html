@@ -23,20 +23,33 @@
   <h1>Privacy</h1>
   <p class="muted">How the bus tracker uses information.</p>
 
-  <h2>Signing in</h2>
-  <p>You sign in with your student ID and password. Passwords are stored only as secure hashes. To stop password guessing, we keep a short record of failed sign-in attempts (account and network address) for up to 24 hours.</p>
+  <h2>Viewing buses</h2>
+  <p>Anyone can see the buses without an account. We do not track who is looking.</p>
+
+  <h2>Contributor account (optional, no password)</h2>
+  <ul>
+    <li>To share a bus location you pick a <b>username</b>, an emoji avatar, optionally your route, admission batch and a small photo. These are public on the leaderboard. Do not use your real name if you prefer not to.</li>
+    <li>Instead of a password, your phone keeps a secret <b>recovery code</b>. We store only a one-way hash of it. Anyone with the code can use your account, so keep it private.</li>
+    <li>Your profile is also cached on your phone so the app opens instantly.</li>
+    <li>We keep how far you shared on each trip (to count XP, badges and weekly champions), never where you were.</li>
+    <li>Photos are cut to a small square. Riders can report a photo; reported photos are hidden until the transport office reviews them, and it can remove photos, reset rude usernames and turn off uploads or sharing for an account.</li>
+    <li>You can delete your account and all its data at any time from your profile.</li>
+  </ul>
 
   <h2>Bus locations</h2>
   <p>Each bus phone sends the bus's location while it is on duty. We keep only the latest position of each bus, not a history.</p>
 
   <h2>If you share your location for a bus</h2>
   <ul>
-    <li>Sharing is optional and starts only when you tap <b>Share location</b> and agree. You can stop at any time.</li>
+    <li>Sharing is optional and starts only when you tap <b>Share location</b> and agree. You can stop at any time. It is only possible during trip times (mornings until the bus reaches campus, evenings until it reaches the end of its route).</li>
     <li>Your location is checked automatically (are you on that bus route and moving with the bus?). Only a checked location is used to move the bus on the map.</li>
-    <li>Other students see the bus, never your name or ID.</li>
-    <li>The transport office can see which student IDs are sharing, to prevent misuse, and can block sharing.</li>
+    <li>Other riders see the bus, not you.</li>
+    <li>The transport office can see which username is sharing, to prevent misuse, and can block sharing.</li>
     <li>We keep only your last few minutes of positions while you share, and delete them when you stop or the bus reaches the end of the route.</li>
   </ul>
+
+  <h2>Sign-in protection</h2>
+  <p>To stop abuse we briefly keep counters of requests per network address (for example new accounts per hour), for up to 24 hours.</p>
 
   <h2>Map</h2>
   <p>The map uses OpenStreetMap data served by OpenFreeMap. Your browser loads map images from them, which means they can see your network address, as with any website.</p>

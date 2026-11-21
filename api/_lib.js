@@ -33,6 +33,26 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS share_blocks (student_id TEXT PRIMARY KEY, at INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS notices (id INTEGER PRIMARY KEY AUTOINCREMENT, message TEXT NOT NULL, level TEXT NOT NULL DEFAULT 'info',
      created_at INTEGER NOT NULL, expires_at INTEGER)`,
+  // ---- Open portal: contributors (no password; a device key proves who you are) ----
+  `CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT NOT NULL, key_hash TEXT NOT NULL, emoji TEXT, color TEXT,
+     route_id TEXT, batch INTEGER, avatar_v INTEGER NOT NULL DEFAULT 0, no_photo INTEGER NOT NULL DEFAULT 0,
+     created_at INTEGER NOT NULL, seen_at INTEGER NOT NULL, renamed_at INTEGER)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS users_name ON users (username COLLATE NOCASE)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS users_key ON users (key_hash)`,
+  `CREATE TABLE IF NOT EXISTS avatars (user_id TEXT PRIMARY KEY, mime TEXT NOT NULL, data TEXT NOT NULL, at INTEGER NOT NULL, hidden INTEGER NOT NULL DEFAULT 0)`,
+  `CREATE TABLE IF NOT EXISTS reports (target TEXT NOT NULL, reporter TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (target, reporter))`,
+  // one row per contributor per bus trip (day + leg 'am' to campus / 'pm' from campus)
+  `CREATE TABLE IF NOT EXISTS contrib (user_id TEXT NOT NULL, route_id TEXT NOT NULL, bus_id TEXT NOT NULL, day TEXT NOT NULL, leg TEXT NOT NULL,
+     metres REAL NOT NULL DEFAULT 0, secs REAL NOT NULL DEFAULT 0, first INTEGER NOT NULL DEFAULT 0, full INTEGER NOT NULL DEFAULT 0,
+     first_at INTEGER NOT NULL, last_at INTEGER NOT NULL, PRIMARY KEY (user_id, bus_id, day, leg))`,
+  `CREATE INDEX IF NOT EXISTS contrib_day ON contrib (day, route_id)`,
+  // state of each bus trip today: waiting -> live -> arrived
+  `CREATE TABLE IF NOT EXISTS trips (bus_id TEXT NOT NULL, day TEXT NOT NULL, leg TEXT NOT NULL, state TEXT NOT NULL, first_user TEXT,
+     started_at INTEGER, arrived_at INTEGER, thanks INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (bus_id, day, leg))`,
+  `CREATE TABLE IF NOT EXISTS champions (week TEXT NOT NULL, route_id TEXT NOT NULL, user_id TEXT NOT NULL, pts INTEGER NOT NULL, PRIMARY KEY (week, route_id))`,
+  `CREATE TABLE IF NOT EXISTS treats (id INTEGER PRIMARY KEY AUTOINCREMENT, route_id TEXT NOT NULL, week TEXT NOT NULL, champion_id TEXT NOT NULL,
+     status TEXT NOT NULL, giver_id TEXT, created_at INTEGER NOT NULL, settled_at INTEGER, UNIQUE (route_id, week))`,
+  `CREATE TABLE IF NOT EXISTS vouches (treat_id INTEGER NOT NULL, user_id TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (treat_id, user_id))`,
 ];
 // Columns added after the first release (applied to existing databases; "duplicate column" errors are ignored).
 const MIGRATIONS = [
@@ -43,7 +63,7 @@ const MIGRATIONS = [
 ];
 
 // Bump SCHEMA_V whenever SCHEMA or MIGRATIONS change.
-const SCHEMA_V = '4';
+const SCHEMA_V = '5';
 // Create any missing tables once per serverless instance (cheap: CREATE TABLE IF NOT EXISTS).
 let _schema;
 export function ensureSchema() {
@@ -139,6 +159,7 @@ export function verifySession(token) {
   try { const p = JSON.parse(Buffer.from(body, 'base64url')); return p.exp > Date.now() ? p : null; } catch { return null; }
 }
 export const studentFrom = req => { const p = verifySession(bearer(req)); return p && p.sub.startsWith('s:') ? p : null; };
+export const userFrom = req => { const p = verifySession(bearer(req)); return p && p.sub.startsWith('u:') ? { ...p, id: p.sub.slice(2) } : null; };
 export const adminFrom = req => { const p = verifySession(bearer(req)); return p && p.sub.startsWith('a:') ? p : null; };
 export const anyFrom = req => verifySession(bearer(req));
 export const bearer = req => (req.headers.authorization || '').replace(/^Bearer\s+/i, '');

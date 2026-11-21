@@ -8,8 +8,11 @@ import routes from './api/routes.js';
 import track from './api/track.js';
 import osmand from './api/osmand.js';
 import share from './api/share.js';
+import me from './api/me.js';
+import board from './api/board.js';
+import avatar from './api/avatar.js';
 
-const API = { login, 'admin-login': adminLogin, admin, buses, routes, track, osmand, share };
+const API = { login, 'admin-login': adminLogin, admin, buses, routes, track, osmand, share, me, board, avatar };
 
 export default {
   async fetch(request, env) {
@@ -36,7 +39,7 @@ export default {
       status(c) { status = c; return res; },
       setHeader(k, v) { out.set(k, v); },
       json(o) { out.set('content-type', 'application/json'); payload = JSON.stringify(o); },
-      send(s) { payload = String(s); },
+      send(s) { payload = s instanceof Uint8Array ? s : String(s); }, // Buffers (photos) stay binary
       end(s) { if (s != null) payload = String(s); },
     };
     try { await handler(req, res); }

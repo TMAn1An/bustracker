@@ -1,7 +1,8 @@
 # IUBAT Bus Tracker
 
-Students sign in, see **all routes**, and tap a route to follow its bus live on a 3D map: where it is coming from / going to
+**Open to everyone** (no sign-in): see **all routes** and tap a route to follow its bus live on a 3D map: where it is coming from / going to
 (both inbound to campus and outbound from campus), next stop, arrival time and the departure schedule.
+Anyone on the bus can **share its location** from their phone (checked automatically), earn XP, badges and a place on the route leaderboard.
 Admins manage buses (number, route, departure times), routes and stops, and publish **notices** that appear in every student app within seconds.
 
 ```
@@ -29,7 +30,7 @@ so the app does not depend on third-party CDNs (only map tiles and fonts are ext
 ## Pages
 | Path | What |
 |---|---|
-| `/` | Student app (sign in, bus list, bus detail, 3D map) |
+| `/` | Open app: routes, my-route countdown, bus detail, 3D map, leaderboard, profiles |
 | `/admin/` | Admin dashboard: **Buses** (number, route, departure times, tracker token), **Routes** (stops on a map, saved snapped to roads), **Notices** (broadcast to all apps, optional expiry) |
 | `/privacy.html` | What the app does with sign-in and location data |
 | `/tracker/` | Lightweight page for the bus phone (geolocation + wake lock). Or use the **Traccar Client** app: Server URL `https://<site>/api/osmand`, device identifier = bus token |
@@ -57,7 +58,47 @@ Every fix is checked on the server (`api/share.js`) before anyone else sees it:
 - the official bus phone always has priority, and riders become a standby backup;
 - other students never see who is sharing; the admin **Sharing** tab shows sharers and can block them or switch the mode off.
 Limitation: a fake-GPS app that imitates a moving bus along the route cannot be fully detected from a web app; the rules above, first-verified-wins and admin blocking limit the damage.
-Test locally: `npm run dev`, then `node scripts/simulate-crowd.js` (five simulated riders: honest, at home, off route, jumping, conflicting).
+Test locally: `npm run dev`, then `node scripts/simulate-crowd.js` (five simulated riders: honest, at home, off route, jumping, conflicting; prints XP and the leaderboard).
+
+## Open portal: contributors, leaderboard and treats
+The student database has not arrived yet, so the app is open to everyone. Viewing needs nothing; **sharing needs a username** (no password).
+
+**Identity without a password** (`api/me.js`): joining creates a random 192-bit *device key*; the phone keeps it in localStorage,
+the server stores only its SHA-256 and returns a signed 60-day session token (refreshed whenever the app opens). The device key is
+also the **recovery code** (copy it, or a `/#restore=<code>` link, to move to a new phone). Abuse limits: 30 new accounts per hour
+per network, optional Cloudflare Turnstile (set `TURNSTILE_SITEKEY` + `TURNSTILE_SECRET`), and XP only from server-verified sharing.
+When the university provides student data, an account can later be linked to a student ID for a ✔ verified badge (see `api/_students.js`).
+
+**Usernames** follow variable-name rules: `^[A-Za-z_][A-Za-z0-9_]{2,19}$`, must contain a letter, case-insensitive unique,
+reserved/rude words refused, changeable once a week. Avatar: an emoji, or a 128×128 photo (WebP/JPEG, ≤24 KB) served from `/api/avatar`.
+
+**Sharing hours** (admin → Sharing, Bangladesh time): morning from **06:00 until the bus reaches campus** (hard stop 12:00), evening from
+**17:00 until it reaches the end of its route** (hard stop 22:00). The trip must go the right way (to campus in the morning).
+Each bus trip has a state per day (`trips`: waiting → live → arrived), set by the bus phone or by verified riders. Once arrived the app shows
+**"✅ Reached campus at 8:12 AM"**, stops estimating, and closes sharing for that trip.
+
+**Reminder**: star *My route* (and optionally *my stop*, if stops have pick-up times); the home card counts down from **20 min before departure**
+and shows a notification while the app is open or installed. (Push to a closed app needs Web Push; see *next*.)
+
+**XP**: 10 XP per km shared along the route (only while verified), +5 for the first rider of a trip, +15 for sharing a trip to the end,
+half XP as a standby backup. Levels: Rookie Rider → Window Seat Scout → Stop Spotter → Route Captain → Highway Hero → Bus Legend → GOAT of the Road.
+12 badges (Early Bird, Full Ride, On Fire streaks, 10 km Club, Weekly Champion, Generous Senior…). Profiles show a GitHub-style contribution graph.
+Home shows **today's top** and **this week's best** contributor; the leaderboard has Today / This week / All time, per route or overall.
+Waiting riders can send the sharer a 🙏 thank-you.
+
+**Weekly champion and treat** (week = Sat–Fri): the first request of a new week crowns last week's #1 of each route (≥20 XP) and opens a
+☕ *treat* invitation to the most senior riders of the route (by admission batch). Unclaimed treats add up (☕×2, ×3…) if the champion keeps winning.
+- The champion confirms "I got my treat" with the giver's username → the giver earns 🫖 *Generous Senior*.
+- If the champion never confirms, a majority of the route's active riders (≥3, accounts older than 2 days) can confirm instead ("I saw the treat happen").
+- A treat pending for over 7 days is **overdue**: the route's *Generosity* rating (1–5 ★) drops, the route shows 🥲, and every **Sunday** the whole
+  route sees a 24-hour "seniors are kipta" treat report.
+
+**Moderation** (admin → Community): review reported/new photos (3 reports hide a photo automatically), remove photos, ban photo uploads,
+reset a username, block sharing (also hides from leaderboards), settle or cancel treats.
+
+**Free-plan budget**: viewing endpoints are public, so polling adapts: every 8 s while a bus is live, 15 s during trip hours, 60 s otherwise,
+never while the app is hidden. Leaderboards are cached 20 s per Worker instance and 60 s on the phone. If daily traffic approaches Cloudflare's
+100,000 requests/day, Workers Paid ($5/month, 10M requests) removes the limit.
 
 ## 3D buses and timetable estimates
 - Buses are drawn as real 3D models (yellow IUBAT bus with windows, wheels, red stripe and lights) using three.js inside a MapLibre
@@ -82,6 +123,7 @@ Live: https://bustracker.iubat.workers.dev (admin: `/admin/`, bus phone: `/track
 The Cloudflare Worker `bustracker` is connected to this GitHub repo (Workers Builds): every push deploys automatically.
 `worker.js` adapts the same `api/*` handlers; static files are served as Workers Static Assets (`.assetsignore` keeps code and
 config private, `_headers` sets security/cache headers). Worker secrets: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `SESSION_SECRET`.
+Optional: `TURNSTILE_SITEKEY` (var) and `TURNSTILE_SECRET` (secret) turn on a bot check when someone picks a username.
 Cloudflare's free plan allows 100,000 API requests/day (static files are unlimited) and about 10 ms CPU per request,
 which is why passwords use PBKDF2 (older scrypt hashes are still accepted).
 Local Worker test: put the three secrets in `.dev.vars` (git-ignored) and run `npx wrangler dev`.
@@ -100,6 +142,6 @@ node db/seed.js --students students.csv       # columns: id,name,password
 ```
 
 ## Known limitations / next
-- Student login uses **one dummy account** for the prototype (`--remove-dummy` deletes it). When the university provides its student database, only `verifyStudent()` in `api/_students.js` needs to change (nothing else depends on where students are stored).
-- Notices show inside the app (live, no reload). Push notifications to phones when the app is closed (Web Push) are not built yet.
+- The student ID login (`api/login.js`, `verifyStudent()`) is kept but no longer used by the app. When the university provides its student database it can be used to link a contributor account to a real student (verified badge, real seniority for treats).
+- Notices and departure reminders show inside the app (and as a notification while it is open/installed). Push to a closed app (Web Push + a Cloudflare Cron Trigger) is not built yet.
 - A browser page on the bus phone can be paused by Android when the screen is off; keep it charging with screen on, or use Traccar Client.

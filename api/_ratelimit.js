@@ -44,3 +44,18 @@ export async function clearFails(accountKey) {
 }
 
 export const waitText = s => (s >= 90 ? `${Math.ceil(s / 60)} minutes` : `${s} seconds`);
+
+/** Simple fixed-window counter (same table): returns true while `key` has been used at most `max` times in `windowMs`. */
+export async function hit(key, max, windowMs) {
+  const now = Date.now();
+  const r = await db().execute({
+    sql: `INSERT INTO login_attempts (key, fails, locked_until, last) VALUES (?, 1, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET
+        fails = CASE WHEN login_attempts.locked_until < excluded.last THEN 1 ELSE login_attempts.fails + 1 END,
+        locked_until = CASE WHEN login_attempts.locked_until < excluded.last THEN excluded.locked_until ELSE login_attempts.locked_until END,
+        last = excluded.last
+      RETURNING fails`,
+    args: ['rl:' + key, now + windowMs, now],
+  });
+  return Number(r.rows[0].fails) <= max;
+}

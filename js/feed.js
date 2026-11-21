@@ -70,13 +70,19 @@
   }
 
   const Feed = {
-    campus: null, routes: [], notices: [], crowdEnabled: false, rev: null, offset: 0, ok: true, onAuthFail: () => {}, onStatus: () => {}, onRoutes: () => {},
-    state: new Map(), token: null, timer: null,
+    campus: null, routes: [], notices: [], crowdEnabled: false, rev: null, offset: 0, ok: true, onStatus: () => {}, onRoutes: () => {}, onPoll: () => {},
+    state: new Map(), timer: null, running: false, trips: new Map(), riders: {}, windows: { am: [360, 720], pm: [1020, 1320] }, turnstile: null,
+    parseDays, hm,
+    /** Bangladesh time now (server clock): { day: weekday 0-6, min: minutes since midnight } */
+    now() { return dhaka(Date.now() + this.offset); },
+    /** 'am' (to campus), 'pm' (from campus) during the sharing windows, else null */
+    legNow() { const m = this.now().min, w = this.windows; return m >= w.am[0] && m < w.am[1] ? 'am' : m >= w.pm[0] && m < w.pm[1] ? 'pm' : null; },
+    trip(busId, leg) { return this.trips.get(busId + ':' + leg) || null; },
 
-    /** Load routes and bus->route assignment (needs a signed-in token). Safe to call again when `rev` changes. */
-    async load(token) {
-      const res = await fetch('api/routes', { headers: { Authorization: 'Bearer ' + token }, cache: 'no-store' });
-      if (res.status === 401) throw Object.assign(new Error('auth'), { auth: true });
+    /** Load routes and bus->route assignment (public). Safe to call again when `rev` changes. */
+    async load() {
+      const res = await fetch('api/routes', { cache: 'no-store' });
+      if (!res.ok) throw new Error('Cannot load routes.');
       const j = await res.json();
       this.campus = j.campus; this.rev = j.rev; lat0 = j.campus.lat; lng0 = j.campus.lng; kx = 111320 * Math.cos(lat0 * rad);
       const routes = j.routes.filter(r => r.geometry.length > 1);
@@ -92,33 +98,43 @@
       });
       this.state = next;
       this.crowdEnabled = !!j.crowdEnabled;
+      if (j.windows) this.windows = j.windows;
+      this.turnstile = j.turnstile || null;
+      this.offset = j.now - Date.now();
       this.notices = (j.notices || []).map(n => ({ ...n, expiresLocal: n.expiresAt ? n.expiresAt - (j.now - Date.now()) : null }));
       this.onRoutes(this);
     },
 
-    async login(id, password) {
-      let res;
-      try { res = await fetch('api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, password }) }); }
-      catch { throw new Error('Cannot reach the server. Check your internet connection.'); }
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(j.error || 'Sign-in failed.');
-      return j;
+    /**
+     * Poll only as often as needed (Cloudflare's free plan counts every API request):
+     * every 8 s while a bus is live, 15 s during trip hours, 60 s otherwise; never while the app is hidden.
+     */
+    start() {
+      if (this.running) return; this.running = true;
+      const loop = async () => { await this.poll(); this.timer = setTimeout(loop, this._delay()); };
+      loop();
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) { clearTimeout(this.timer); loop(); } });
+    },
+    _delay() {
+      let live = false; this.state.forEach(st => { if (st.fix && this._age(st) < 90) live = true; });
+      if (live) return POLL_MS;
+      const m = this.now().min, soon = [...this.state.values()].some(st => [st.schedule?.departStart, st.schedule?.departCampus].some(t => { const d = hm(t); return d != null && m >= d - 30 && m < d; }));
+      return this.legNow() || soon ? 15000 : 60000;
     },
 
-    start(token) { this.token = token; this.poll(); clearInterval(this.timer); this.timer = setInterval(() => this.poll(), POLL_MS); },
-    stop() { clearInterval(this.timer); this.token = null; this.state.forEach(s => { s.fix = null; s.disp = null; }); },
-
     async poll() {
-      if (!this.token || document.hidden) return;
+      if (document.hidden) return;
       try {
-        const res = await fetch('api/buses', { headers: { Authorization: 'Bearer ' + this.token }, cache: 'no-store' });
-        if (res.status === 401) { this.stop(); return this.onAuthFail(); }
+        const res = await fetch('api/buses', { cache: 'no-store' });
         const j = await res.json();
         this.offset = j.now - Date.now();
-        if (j.rev !== this.rev) await this.load(this.token); // admin changed routes/buses
+        if (j.rev !== this.rev) await this.load(); // admin changed routes/buses
         j.buses.forEach(f => this.ingest(f));
+        this.trips = new Map((j.trips || []).map(t => [t.bus + ':' + t.leg, t]));
+        this.riders = j.riders || {};
         if (!this.ok) { this.ok = true; this.onStatus(true); }
-      } catch (e) { if (e.auth) { this.stop(); return this.onAuthFail(); } if (this.ok) { this.ok = false; this.onStatus(false); } }
+        this.onPoll(this);
+      } catch (e) { if (this.ok) { this.ok = false; this.onStatus(false); } }
     },
 
     ingest(f) {
@@ -175,10 +191,11 @@
       if (!r || !sc) return null;
       const t = dhaka(now + this.offset), days = parseDays(sc.days);
       if (days && !days.has(t.day)) return null;
+      const done = leg => this.trip(st.id, leg)?.state === 'arrived'; // the bus already reached the end of this trip today
       const tripMin = (r.length / 1000) / EST_KMH * 60 + Math.max(0, r.stops.length - 2) * STOP_MIN;
       // Inbound trip with pick-up times on the stops: follow the real timetable stop by stop.
       const timed = r.stops.filter(x => hm(x.time) != null);
-      if (timed.length >= 2) {
+      if (timed.length >= 2 && !done('am')) {
         const first = hm(timed[0].time), last = timed[timed.length - 1];
         const lastT = hm(last.time), endT = lastT + ((r.length - last.s) / 1000) / EST_KMH * 60; // after the last timed stop: average speed
         if (t.min >= first && t.min <= endT) {
@@ -194,7 +211,7 @@
         }
       }
       for (const [dep, dir] of [[hm(sc.departStart), 1], [hm(sc.departCampus), -1]]) {
-        if (dep == null) continue;
+        if (dep == null || done(dir > 0 ? 'am' : 'pm')) continue;
         const el = t.min - dep;
         if (el < 0 || el > tripMin) continue;
         const along = r.length * (el / tripMin), sPos = dir > 0 ? along : r.length - along;

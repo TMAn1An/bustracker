@@ -52,9 +52,10 @@
 
   document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => {
     document.querySelectorAll('[data-tab]').forEach(x => x.setAttribute('aria-selected', x === b));
-    ['buses', 'routes', 'notices', 'sharing'].forEach(t => { $('#tab-' + t).hidden = b.dataset.tab !== t; });
+    ['buses', 'routes', 'notices', 'sharing', 'community'].forEach(t => { $('#tab-' + t).hidden = b.dataset.tab !== t; });
     $('#menuLabel').textContent = b.textContent; toggleMenu(false); // phone: show the current section, close the menu
     if (b.dataset.tab === 'routes') { initMap().then(() => { map.resize(); drawRoute(); }); }
+    if (b.dataset.tab === 'community') loadCommunity();
   }));
 
   /* ---------- Buses ---------- */
@@ -122,11 +123,13 @@
     $('#sharerEmpty').hidden = S.sharers.length > 0;
     $('#sharerRows').innerHTML = S.sharers.map(x => {
       const [label, cls] = ST[x.status] || [x.status, 'wait'];
-      return `<tr><td><b>${esc(x.studentId)}</b></td><td>Bus ${esc(x.busId)}</td><td class="st-${cls}">${esc(label)}</td><td class="small">${fmtWhen(x.startedAt)}</td><td class="small">${ago(x.lastTs) || ''}</td>
+      return `<tr><td><b>${esc(x.username ? '@' + x.username : x.studentId)}</b></td><td>Bus ${esc(x.busId)}</td><td class="st-${cls}">${esc(label)}</td><td class="small">${fmtWhen(x.startedAt)}</td><td class="small">${ago(x.lastTs) || ''}</td>
         <td class="r"><button class="btn ghost-btn sm danger" data-block="${esc(x.studentId)}">Block</button></td></tr>`;
     }).join('');
     $('#blockEmpty').hidden = S.blocked.length > 0;
-    $('#blockRows').innerHTML = S.blocked.map(x => `<tr><td><b>${esc(x.studentId)}</b></td><td class="small">Blocked ${fmtWhen(x.at)}</td><td class="r"><button class="btn ghost-btn sm" data-unblock="${esc(x.studentId)}">Unblock</button></td></tr>`).join('');
+    const [af, at] = (S.windows?.am || '06:00-12:00').split('-'), [pf, pt] = (S.windows?.pm || '17:00-22:00').split('-');
+    if (document.activeElement?.closest('#winForm') == null) { $('#amFrom').value = af; $('#amTo').value = at; $('#pmFrom').value = pf; $('#pmTo').value = pt; }
+    $('#blockRows').innerHTML = S.blocked.map(x => `<tr><td><b>${esc(x.username ? '@' + x.username : x.studentId)}</b></td><td class="small">Blocked ${fmtWhen(x.at)}</td><td class="r"><button class="btn ghost-btn sm" data-unblock="${esc(x.studentId)}">Unblock</button></td></tr>`).join('');
   }
   $('#crowdOn').addEventListener('change', async e => {
     try { await act('setCrowd', { enabled: e.target.checked }); toast(e.target.checked ? 'Student sharing turned on' : 'Student sharing turned off'); renderSharing(); }
@@ -135,9 +138,52 @@
   $('#tab-sharing').addEventListener('click', async e => {
     const b = e.target.closest('[data-block]'), u = e.target.closest('[data-unblock]');
     try {
-      if (b && confirm(`Block student ${b.dataset.block} from sharing location?`)) { await act('blockSharer', { studentId: b.dataset.block }); toast('Student blocked'); renderSharing(); }
+      if (b && confirm(`Block this rider from sharing location?`)) { await act('blockSharer', { studentId: b.dataset.block }); toast('Student blocked'); renderSharing(); }
       if (u) { await act('unblockSharer', { studentId: u.dataset.unblock }); toast('Student unblocked'); renderSharing(); }
     } catch (x) { toast(x.message, true); }
+  });
+
+  $('#winForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    try { await act('setWindows', { am: `${$('#amFrom').value}-${$('#amTo').value}`, pm: `${$('#pmFrom').value}-${$('#pmTo').value}` }); toast('Sharing hours saved'); renderSharing(); }
+    catch (x) { toast(x.message, true); }
+  });
+
+  /* ---------- Community ---------- */
+  const routeName = id => S.routes.find(r => r.id === id)?.name || '—';
+  async function loadCommunity() { try { S = await api('admin?community=1'); renderCommunity(); } catch (x) { toast(x.message, true); } }
+  const cact = async (action, body, msg) => { try { await act(action, { ...body, community: true }); toast(msg); renderCommunity(); renderSharing(); } catch (x) { toast(x.message, true); } };
+  function renderCommunity() {
+    const photos = S.photos || [];
+    $('#photoEmpty').hidden = photos.length > 0;
+    $('#photoGrid').innerHTML = photos.map(p => `<figure class="ph ${p.hidden ? 'hid' : ''}" data-uid="${esc(p.userId)}"><img src="${esc(p.src)}" alt="">
+      <figcaption><b>@${esc(p.username)}</b><small>${p.hidden ? 'Hidden · ' : ''}${p.reports ? `${p.reports} report${p.reports > 1 ? 's' : ''}` : ago(p.at) || ''}</small>
+      <span>${p.hidden || p.reports ? '<button class="btn ghost-btn sm" data-keep>Looks fine</button>' : ''}<button class="btn ghost-btn sm danger" data-rmphoto>Remove</button><button class="btn ghost-btn sm danger" data-banphoto>Remove + ban uploads</button></span></figcaption></figure>`).join('');
+    const q = $('#userQ').value.trim().toLowerCase(), users = (S.users || []).filter(u => !q || u.username.toLowerCase().includes(q));
+    $('#userEmpty').hidden = users.length > 0;
+    $('#userRows').innerHTML = users.slice(0, 150).map(u => `<tr data-uid="${esc(u.id)}"><td>${esc(u.emoji || '')} <b>@${esc(u.username)}</b>${u.batch ? ` <small class="muted">Batch ${u.batch}</small>` : ''}</td>
+      <td class="small">${esc(routeName(u.routeId))}</td><td>${u.xp}</td><td class="small">${ago(u.seenAt) || ''}</td>
+      <td class="small">${[u.reports ? `<span class="st-bad">${u.reports} report${u.reports > 1 ? 's' : ''}</span>` : '', u.blocked ? '<span class="st-bad">sharing blocked</span>' : '', u.noPhoto ? '<span class="st-wait">no photo uploads</span>' : ''].filter(Boolean).join(' · ')}</td>
+      <td class="r"><button class="btn ghost-btn sm" data-rename>Reset name</button>${u.noPhoto ? '<button class="btn ghost-btn sm" data-allowphoto>Allow photos</button>' : '<button class="btn ghost-btn sm danger" data-nophoto>Ban photos</button>'}${u.blocked ? '<button class="btn ghost-btn sm" data-ublock>Unblock</button>' : '<button class="btn ghost-btn sm danger" data-ublockit>Block sharing</button>'}</td></tr>`).join('');
+    const tr = S.treats || [];
+    $('#treatEmpty').hidden = tr.length > 0;
+    const TS = { pending: ['Waiting for treat', 'wait'], paid: ['Treat given', 'ok'], vouched: ['Confirmed by riders', 'ok'], cancelled: ['Cancelled', 'bad'] };
+    $('#treatRows').innerHTML = tr.map(t => `<tr data-tid="${t.id}"><td class="small">${esc(t.week)}</td><td>${esc(routeName(t.routeId))}</td><td><b>@${esc(t.champion || '?')}</b></td>
+      <td class="small st-${(TS[t.status] || [])[1] || 'wait'}">${esc((TS[t.status] || [t.status])[0])}${t.giver ? ` by @${esc(t.giver)}` : ''}${t.status === 'pending' && t.votes ? ` · ${t.votes} rider confirmations` : ''}</td>
+      <td class="r">${t.status === 'pending' ? '<button class="btn ghost-btn sm" data-settle="paid">Mark given</button><button class="btn ghost-btn sm danger" data-settle="cancelled">Cancel</button>' : '<button class="btn ghost-btn sm" data-settle="pending">Reopen</button>'}</td></tr>`).join('');
+  }
+  $('#userQ').addEventListener('input', renderCommunity);
+  $('#tab-community').addEventListener('click', e => {
+    const uid = e.target.closest('[data-uid]')?.dataset.uid, tid = e.target.closest('[data-tid]')?.dataset.tid, has = s => e.target.closest(s);
+    if (has('[data-keep]')) return cact('keepPhoto', { userId: uid }, 'Photo kept');
+    if (has('[data-rmphoto]')) return cact('removePhoto', { userId: uid }, 'Photo removed');
+    if (has('[data-banphoto]')) { if (confirm('Remove this photo and stop this rider from uploading photos?')) cact('removePhoto', { userId: uid, ban: true }, 'Photo removed, uploads banned'); return; }
+    if (has('[data-nophoto]')) return cact('removePhoto', { userId: uid, ban: true }, 'Photo uploads banned');
+    if (has('[data-allowphoto]')) return cact('setPhotoBan', { userId: uid, ban: false }, 'Photo uploads allowed');
+    if (has('[data-rename]')) { if (confirm('Replace this username with a random one (e.g. rider_3fa9c1)? The rider can pick a new name.')) cact('renameUser', { userId: uid }, 'Username reset'); return; }
+    if (has('[data-ublockit]')) { if (confirm('Block this rider from sharing location? They also disappear from leaderboards.')) cact('blockSharer', { studentId: uid }, 'Sharing blocked'); return; }
+    if (has('[data-ublock]')) return cact('unblockSharer', { studentId: uid }, 'Unblocked');
+    const st = has('[data-settle]'); if (st) return cact('settleTreat', { id: tid, status: st.dataset.settle }, 'Treat updated');
   });
 
   /* ---------- Notices ---------- */

@@ -9,57 +9,60 @@
 //   6. with several sharers, the one verified first wins; a newcomer far from it is ignored (AGREE_M)
 //   7. the official bus phone always has priority while it is live (DEVICE_FRESH_MS)
 // Students' identities are never shown to other students; admins can see and block sharers.
-import { db, studentFrom, num, ensureSchema, getSetting } from './_lib.js';
-import { prepRoute, project, metres } from './_geo.js';
+import { db, userFrom, num, ensureSchema, getSetting } from './_lib.js';
+import { project, metres } from './_geo.js';
+import { routeFor, windows, legAt, bdNow, tripOf, tripTick, credit, windowText, END_M } from './_social.js';
 
 const MAX_ACC = 60, ON_ROUTE = 80, MIN_PROGRESS = 400, MIN_WINDOW = 90e3, // ~9 fixes at one every 10 s
       MIN_KMH = 8, MAX_KMH = 120;
 const WINDOW = 4 * 60e3, STALL_MS = 6 * 60e3, STALL_M = 60, AGREE_M = 500, PEER_FRESH = 20e3, DEVICE_FRESH_MS = 45e3;
-const MIN_GAP = 2500, END_M = 150;
+const MIN_GAP = 2500, FULL_RIDE_S = 600;
 
 const MSG = {
   checking: 'Checking: keep sharing while the bus moves along the route.',
   verified: 'Verified: your location is helping others see this bus.',
-  backup: 'Verified. The bus phone is live, so yours is on standby as a backup.',
+  backup: 'Verified. The bus phone is live, so yours is on standby as a backup (half XP).',
   disagree: 'Another verified rider is already sharing this bus; your location does not match theirs, so it is not used.',
   paused: 'Paused: you have not moved for a while. Sharing resumes when the bus moves.',
   off_route: 'You are not on this bus route, so your location cannot be used.',
   weak_gps: 'GPS signal is too weak right now. Move near a window.',
   jump: 'Your location jumped impossibly far, so it was ignored.',
+  wrong_way: 'This trip goes the other way, so your location cannot be used.',
   arrived: 'The bus reached the end of the route. Sharing stopped. Thank you!',
 };
-
-let routeCache = { rev: null, map: new Map() };
-async function routeFor(busId) {
-  const r = await db().execute({ sql: `SELECT b.id AS bus, r.id, r.geometry FROM buses b JOIN routes r ON r.id = b.route_id WHERE b.id = ?`, args: [busId] });
-  const row = r.rows[0]; if (!row) return null;
-  let cached = routeCache.map.get(row.id);
-  if (!cached || cached.raw !== row.geometry) { cached = { raw: row.geometry, ...prepRoute(JSON.parse(row.geometry)) }; routeCache.map.set(row.id, cached); }
-  return cached;
-}
+const hm = ms => new Date(ms + 6 * 3600e3).toISOString().slice(11, 16).replace(/^(\d\d):(\d\d)$/, (_, h, m) => `${(+h % 12) || 12}:${m} ${+h < 12 ? 'AM' : 'PM'}`);
 
 async function stop(sid) {
   await db().batch([{ sql: 'DELETE FROM share_sessions WHERE student_id = ?', args: [sid] }, { sql: 'DELETE FROM share_fixes WHERE student_id = ?', args: [sid] }], 'write');
 }
 
 export default async function handler(req, res) {
-  const me = studentFrom(req);
-  if (!me) return res.status(401).json({ error: 'Please sign in.' });
+  const me = userFrom(req);
+  if (!me) return res.status(401).json({ error: 'Pick a username first to share location.' });
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   await ensureSchema();
-  const sid = me.sub.slice(2), body = req.body || {};
+  const sid = me.id, body = req.body || {};
   const reply = (status, extra = {}) => res.status(200).json({ status, message: MSG[status], ...extra });
 
   if (body.action === 'stop') { await stop(sid); return res.status(200).json({ status: 'stopped' }); }
 
   if ((await getSetting('crowd_enabled', '1')) !== '1') return res.status(403).json({ error: 'Location sharing by students is turned off by the admin.' });
-  if ((await db().execute({ sql: 'SELECT 1 FROM share_blocks WHERE student_id = ?', args: [sid] })).rows[0])
-    return res.status(403).json({ error: 'Location sharing is not available for your account. Contact the transport office.' });
+  const acct = (await db().execute({ sql: 'SELECT u.id, (SELECT 1 FROM share_blocks b WHERE b.student_id = u.id) AS blocked FROM users u WHERE u.id = ?', args: [sid] })).rows[0];
+  if (!acct) return res.status(401).json({ error: 'Your account was not found. Pick a username again.' });
+  if (acct.blocked) return res.status(403).json({ error: 'Location sharing is not available for your account. Contact the transport office.' });
+  // Only during trip times: morning until the bus reaches campus, evening until it reaches the end of its route.
+  const win = await windows(), bt = bdNow(), leg = legAt(win, bt.min);
+  if (!leg) { await stop(sid); return res.status(403).json({ error: 'Sharing is closed right now. ' + windowText(win), closed: true }); }
 
   const busId = String(body.busId || ''), lat = num(body.lat, -90, 90), lng = num(body.lng, -180, 180), acc = num(body.acc, 0, 100000);
   if (!busId || lat === null || lng === null) return res.status(400).json({ error: 'Bad request' });
   const route = await routeFor(busId);
   if (!route) return res.status(404).json({ error: 'This bus has no route yet.' });
+  const trip0 = await tripOf(busId, bt.day, leg);
+  if (trip0 && trip0.state === 'arrived') {
+    await stop(sid);
+    return res.status(403).json({ error: `Bus ${busId} already ${leg === 'am' ? 'reached campus' : 'reached the end of its route'} at ${hm(trip0.arrived_at)}. Thanks anyway!`, closed: true });
+  }
 
   const now = Date.now();
   let ses = (await db().execute({ sql: 'SELECT * FROM share_sessions WHERE student_id = ?', args: [sid] })).rows[0];
@@ -112,12 +115,28 @@ export default async function handler(req, res) {
   if (span >= STALL_MS - 30e3 && recent.length > 1 && Math.abs(recent[recent.length - 1].s - recent[0].s) < STALL_M) {
     await save('paused', { last_s: p.s, verified_at: verifiedAt }); return reply('paused');
   }
+  // The trip direction must match the time of day: to campus in the morning, away from campus in the evening.
+  if ((leg === 'am' && dir < 0) || (leg === 'pm' && dir > 0)) { await save('wrong_way', { last_s: p.s, verified_at: verifiedAt }); return reply('wrong_way'); }
+
+  // Contribution: metres moved along the route since the last fix (in the travel direction, at a possible speed).
+  const dt = Math.min(30, Math.max(0, (now - ses.last_ts) / 1000));
+  const gain = ses.last_s == null ? 0 : Math.max(0, Math.min(dir * (p.s - ses.last_s), (MAX_KMH / 3.6) * dt));
+  const earn = async (status, end) => {
+    const trip = await tripTick(busId, leg, bt.day, p.s, route.length, now, status === 'verified' ? sid : null);
+    const half = status === 'backup' ? 0.5 : 1;
+    const c = await credit({ userId: sid, routeId: route.id, busId, day: bt.day, leg, metres: gain * half, secs: dt, first: trip.first_user === sid, full: false, now });
+    if (end && Number(c.secs) >= FULL_RIDE_S) Object.assign(c, await credit({ userId: sid, routeId: route.id, busId, day: bt.day, leg, metres: 0, secs: 0, first: false, full: true, now }));
+    return { xp: Number(c.xp) || 0, thanks: Number(trip.thanks) || 0, tripState: trip.state };
+  };
+
   // arrived at the end of the route in the travel direction
-  if ((dir > 0 && p.s >= route.length - END_M) || (dir < 0 && p.s <= END_M)) { await stop(sid); return reply('arrived'); }
+  if ((dir > 0 && p.s >= route.length - END_M) || (dir < 0 && p.s <= END_M)) { const e = await earn('verified', true); await stop(sid); return reply('arrived', e); }
 
   // 7. the official bus phone has priority
   const pos = (await db().execute({ sql: 'SELECT ts, source, lat, lng FROM positions WHERE bus_id = ?', args: [busId] })).rows[0];
-  if (pos && pos.source === 'device' && now - pos.ts < DEVICE_FRESH_MS) { await save('backup', { last_s: p.s, verified_at: verifiedAt }); return reply('backup'); }
+  if (pos && pos.source === 'device' && now - pos.ts < DEVICE_FRESH_MS) {
+    await save('backup', { last_s: p.s, verified_at: verifiedAt }); return reply('backup', await earn('backup'));
+  }
 
   // 6. other verified sharers on the same bus: the one verified first wins
   const peers = (await db().execute({ sql: `SELECT student_id, verified_at, last_lat, last_lng FROM share_sessions
@@ -130,5 +149,5 @@ export default async function handler(req, res) {
       ON CONFLICT(bus_id) DO UPDATE SET lat=excluded.lat, lng=excluded.lng, speed=excluded.speed, heading=excluded.heading, acc=excluded.acc, ts=excluded.ts, source='crowd'`,
     args: [busId, lat, lng, speed ?? (kmh / 3.6), heading, acc, now] });
   await save('verified', { last_s: p.s, verified_at: verifiedAt });
-  return reply('verified');
+  return reply('verified', await earn('verified'));
 }

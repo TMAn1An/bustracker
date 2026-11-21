@@ -138,3 +138,14 @@ small.also:empty { display: none; }
   #tab-buses .a-table td.r::before { display: none; }
 }
 @media (max-width: 760px) { .a-inline .a-sel { display: flex; } .a-inline .a-sel select { flex: none; } }
+
+/* Community */
+.ph-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; padding: 14px; }
+.ph { margin: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #fafbf9; }
+.ph.hid { border-color: #fecdca; background: #fef3f2; }
+.ph img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
+.ph.hid img { filter: blur(10px); transition: filter .2s; } .ph.hid:hover img { filter: none; }
+.ph figcaption { padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.ph figcaption small { color: var(--muted); } .ph figcaption span { display: flex; flex-wrap: wrap; gap: 6px; }
+#winForm { margin-top: 4px; } #winForm input { width: 120px; }
+#userQ { font: inherit; padding: 8px 11px; border: 1px solid #cfd6cd; border-radius: 9px; width: min(320px, 100%); }

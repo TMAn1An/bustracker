@@ -7,6 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 PRODUCTION = "1"
 # Secrets (set with `wrangler secret put`): TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, SESSION_SECRET
+# Optional bot check on new usernames: TURNSTILE_SITEKEY (var) + TURNSTILE_SECRET (secret)
 
 [assets]
 directory = "."

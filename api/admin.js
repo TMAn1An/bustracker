@@ -1,5 +1,6 @@
 import { db, adminFrom, buildGeometry, bumpRev, getRev, sha256, num, CAMPUS, ensureSchema, getSetting, setSetting } from './_lib.js';
 import { randomBytes } from 'node:crypto';
+import { windows, parseWin, resetWindowsCache, PTS } from './_social.js';
 
 const BUS_ID = /^[A-Za-z0-9-]{1,10}$/;
 const COLOR = /^#[0-9a-fA-F]{6}$/;
@@ -20,23 +21,44 @@ function cleanStops(list) {
   });
 }
 
-async function state() {
+async function state(community = false) {
   const [routes, buses, pos] = await Promise.all([
     db().execute('SELECT id, name, color, stops, geometry, updated_at FROM routes ORDER BY name'),
     db().execute('SELECT id, route_id, depart_start, depart_campus, days FROM buses ORDER BY CAST(id AS INTEGER), id'),
     db().execute('SELECT bus_id, ts, speed FROM positions'),
   ]);
   const notices = await db().execute('SELECT id, message, level, created_at, expires_at FROM notices ORDER BY created_at DESC LIMIT 100');
-  const sharers = await db().execute({ sql: 'SELECT student_id, bus_id, status, started_at, verified_at, last_ts FROM share_sessions WHERE last_ts > ? ORDER BY last_ts DESC', args: [Date.now() - 30 * 60e3] });
-  const blocks = await db().execute('SELECT student_id, at FROM share_blocks ORDER BY at DESC');
+  const sharers = await db().execute({ sql: `SELECT s.student_id, u.username, s.bus_id, s.status, s.started_at, s.verified_at, s.last_ts FROM share_sessions s
+      LEFT JOIN users u ON u.id = s.student_id WHERE s.last_ts > ? ORDER BY s.last_ts DESC`, args: [Date.now() - 30 * 60e3] });
+  const blocks = await db().execute('SELECT b.student_id, u.username, b.at FROM share_blocks b LEFT JOIN users u ON u.id = b.student_id ORDER BY b.at DESC');
+  const [users, photos, treats] = await db().batch([
+    `SELECT u.id, u.username, u.emoji, u.route_id, u.batch, u.avatar_v, u.no_photo, u.created_at, u.seen_at,
+        (SELECT COALESCE(SUM(${PTS}),0) FROM contrib c WHERE c.user_id = u.id) AS xp,
+        (SELECT COUNT(*) FROM reports r WHERE r.target = u.id) AS reports,
+        EXISTS (SELECT 1 FROM share_blocks b WHERE b.student_id = u.id) AS blocked
+      FROM users u ORDER BY reports DESC, u.seen_at DESC LIMIT 300`,
+    // photos that need a look: reported or auto-hidden, plus the newest uploads
+    // (only when the Community tab asks: photos are a few KB each)
+    community ? `SELECT a.user_id, a.mime, a.data, a.at, a.hidden, u.username, (SELECT COUNT(*) FROM reports r WHERE r.target = a.user_id) AS reports
+      FROM avatars a JOIN users u ON u.id = a.user_id ORDER BY a.hidden DESC, reports DESC, a.at DESC LIMIT 40` : 'SELECT 1 WHERE 0',
+    `SELECT t.id, t.route_id, t.week, t.status, t.created_at, t.settled_at, c.username AS champion, g.username AS giver,
+        (SELECT COUNT(*) FROM vouches v WHERE v.treat_id = t.id) AS votes
+      FROM treats t LEFT JOIN users c ON c.id = t.champion_id LEFT JOIN users g ON g.id = t.giver_id ORDER BY t.week DESC, t.id DESC LIMIT 60`,
+  ], 'read');
+  const win = await windows();
   const last = Object.fromEntries(pos.rows.map(p => [p.bus_id, p]));
   return {
     now: Date.now(), campus: CAMPUS, rev: await getRev(),
     routes: routes.rows.map(r => ({ id: r.id, name: r.name, color: r.color, stops: JSON.parse(r.stops), geometry: JSON.parse(r.geometry) })),
     buses: buses.rows.map(b => ({ id: b.id, routeId: b.route_id, departStart: b.depart_start, departCampus: b.depart_campus, days: b.days, lastSeen: last[b.id]?.ts ?? null, speed: last[b.id]?.speed ?? null })),
     crowdEnabled: (await getSetting('crowd_enabled', '1')) === '1',
-    sharers: sharers.rows.map(x => ({ studentId: x.student_id, busId: x.bus_id, status: x.status, startedAt: x.started_at, verifiedAt: x.verified_at, lastTs: x.last_ts })),
-    blocked: blocks.rows.map(x => ({ studentId: x.student_id, at: x.at })),
+    sharers: sharers.rows.map(x => ({ studentId: x.student_id, username: x.username, busId: x.bus_id, status: x.status, startedAt: x.started_at, verifiedAt: x.verified_at, lastTs: x.last_ts })),
+    blocked: blocks.rows.map(x => ({ studentId: x.student_id, username: x.username, at: x.at })),
+    windows: win.text,
+    users: users.rows.map(u => ({ id: u.id, username: u.username, emoji: u.emoji, routeId: u.route_id, batch: u.batch, hasPhoto: !!u.avatar_v, noPhoto: !!u.no_photo,
+      createdAt: u.created_at, seenAt: u.seen_at, xp: Number(u.xp), reports: Number(u.reports), blocked: !!u.blocked })),
+    photos: photos.rows.map(a => ({ userId: a.user_id, username: a.username, src: `data:${a.mime};base64,${a.data}`, at: a.at, hidden: !!a.hidden, reports: Number(a.reports) })),
+    treats: treats.rows.map(t => ({ id: t.id, routeId: t.route_id, week: t.week, status: t.status, champion: t.champion, giver: t.giver, votes: Number(t.votes), createdAt: t.created_at })),
     notices: notices.rows.map(n => ({ id: n.id, message: n.message, level: n.level, createdAt: n.created_at, expiresAt: n.expires_at })),
   };
 }
@@ -130,6 +152,40 @@ const actions = {
     return {};
   },
   async unblockSharer({ studentId }) { await db().execute({ sql: 'DELETE FROM share_blocks WHERE student_id = ?', args: [String(studentId)] }); return {}; },
+  async setWindows({ am, pm }) {
+    const a = parseWin(am), p = parseWin(pm);
+    if (!a || !p || a[0] >= a[1] || p[0] >= p[1]) throw new Error('Sharing hours: use times like 06:00 and 12:00 (start before end).');
+    await setSetting('win_am', am); await setSetting('win_pm', pm); resetWindowsCache();
+    return {};
+  },
+  // ---- community moderation ----
+  async removePhoto({ userId, ban }) {
+    await db().batch([
+      { sql: 'DELETE FROM avatars WHERE user_id = ?', args: [userId] }, { sql: 'DELETE FROM reports WHERE target = ?', args: [userId] },
+      { sql: `UPDATE users SET avatar_v = 0${ban ? ', no_photo = 1' : ''} WHERE id = ?`, args: [userId] },
+    ], 'write');
+    return {};
+  },
+  async keepPhoto({ userId }) { // reviewed: the photo is fine
+    const a = (await db().execute({ sql: 'SELECT at FROM avatars WHERE user_id = ?', args: [userId] })).rows[0];
+    if (!a) throw new Error('No photo.');
+    await db().batch([
+      { sql: 'UPDATE avatars SET hidden = 0 WHERE user_id = ?', args: [userId] }, { sql: 'DELETE FROM reports WHERE target = ?', args: [userId] },
+      { sql: 'UPDATE users SET avatar_v = ? WHERE id = ?', args: [a.at, userId] },
+    ], 'write');
+    return {};
+  },
+  async setPhotoBan({ userId, ban }) { await db().execute({ sql: 'UPDATE users SET no_photo = ? WHERE id = ?', args: [ban ? 1 : 0, userId] }); return {}; },
+  async renameUser({ userId }) { // replace an offensive username; the rider can pick a new one right away
+    const name = 'rider_' + randomBytes(3).toString('hex');
+    await db().execute({ sql: 'UPDATE users SET username = ?, renamed_at = NULL WHERE id = ?', args: [name, userId] });
+    return { name };
+  },
+  async settleTreat({ id, status }) {
+    if (!['pending', 'paid', 'vouched', 'cancelled'].includes(status)) throw new Error('Bad status.');
+    await db().execute({ sql: 'UPDATE treats SET status = ?, settled_at = ? WHERE id = ?', args: [status, status === 'pending' ? null : Date.now(), Number(id)] });
+    return {};
+  },
   async newToken({ id }) {
     const token = newToken();
     const r = await db().execute({ sql: 'UPDATE buses SET token_hash = ? WHERE id = ?', args: [sha256(token), id] });
@@ -142,14 +198,14 @@ export default async function handler(req, res) {
   if (!adminFrom(req)) return res.status(401).json({ error: 'Admin sign-in required.' });
   await ensureSchema();
   res.setHeader('Cache-Control', 'no-store');
-  if (req.method === 'GET') return res.status(200).json(await state());
+  if (req.method === 'GET') return res.status(200).json(await state((req.query || {}).community === '1'));
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const fn = actions[req.body?.action];
   if (!fn) return res.status(400).json({ error: 'Unknown action.' });
   try {
     const out = await fn(req.body);
     await bumpRev();
-    res.status(200).json({ ok: true, ...out, state: await state() });
+    res.status(200).json({ ok: true, ...out, state: await state(!!req.body.community) });
   } catch (e) {
     res.status(400).json({ error: e.message || 'Request failed.' });
   }

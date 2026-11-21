@@ -1,4 +1,5 @@
 import { saveFix } from './_lib.js';
+import { deviceTrip } from './_social.js';
 
 // Traccar Client অ্যাপের জন্য (OsmAnd প্রোটোকল): /api/osmand?id=<টোকেন>&lat=&lon=&speed=<নট>&bearing=&timestamp=
 export default async function handler(req, res) {
@@ -9,5 +10,6 @@ export default async function handler(req, res) {
     speed: Number.isFinite(knots) ? knots * 0.514444 : null,
     ts: q.timestamp ? Number(q.timestamp) * (Number(q.timestamp) < 1e12 ? 1000 : 1) : undefined,
   });
+  if (r.bus) await deviceTrip(r.bus, Number(q.lat), Number(q.lon));
   res.status(r.status).send(r.error || 'OK');
 }
