@@ -36,7 +36,7 @@
   async function start() {
     S = await api('admin');
     $('#signin').hidden = true; $('#adminApp').hidden = false;
-    renderBuses(); renderRouteList(); renderNotices(); renderSharing();
+    renderBuses(); renderRouteList(); renderNotices(); renderSharing(); renderCalendar(); renderFeedback(); counts();
     setInterval(async () => { if (!$('#tab-sharing').hidden && !document.hidden) { try { S = await api('admin'); renderSharing(); } catch {} } }, 10000);
   }
 
@@ -52,9 +52,10 @@
 
   document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => {
     document.querySelectorAll('[data-tab]').forEach(x => x.setAttribute('aria-selected', x === b));
-    ['buses', 'routes', 'notices', 'sharing'].forEach(t => { $('#tab-' + t).hidden = b.dataset.tab !== t; });
-    $('#menuLabel').textContent = b.textContent; toggleMenu(false); // phone: show the current section, close the menu
+    ['buses', 'routes', 'notices', 'sharing', 'community', 'calendar', 'feedback'].forEach(t => { $('#tab-' + t).hidden = b.dataset.tab !== t; });
+    $('#menuLabel').textContent = b.firstChild.textContent.trim(); toggleMenu(false); // phone: show the current section, close the menu
     if (b.dataset.tab === 'routes') { initMap().then(() => { map.resize(); drawRoute(); }); }
+    if (b.dataset.tab === 'community') loadCommunity();
   }));
 
   /* ---------- Buses ---------- */
@@ -72,9 +73,9 @@
         <td data-label="Route"><select class="rt" aria-label="Route">${routeOpts(b.routeId)}</select><small class="also">${esc(alsoText(b.routeId, b.id))}</small></td>
         <td data-label="Leaves start"><input class="tm ds" type="time" value="${esc(b.departStart || '')}" aria-label="Leaves start"></td>
         <td data-label="Leaves campus"><input class="tm dc" type="time" value="${esc(b.departCampus || '')}" aria-label="Leaves campus"></td>
-        <td data-label="Days"><input class="dy" list="dayPresets" value="${esc(b.days || '')}" maxlength="30" placeholder="Sat–Wed" aria-label="Days"></td>
+        <td data-label="Days"><input class="dy" list="dayPresets" value="${esc(b.days || '')}" maxlength="30" placeholder="Uni days" title="Empty = the university calendar (Calendar tab)" aria-label="Days"></td>
         <td data-label="Last seen"><span class="seen ${live ? 'on' : ''}"><i></i>${seen ? seen : 'Never'}</span></td>
-        <td class="r"><button class="btn ghost-btn sm save" hidden>Save</button><button class="btn ghost-btn sm tok">New token</button><button class="btn ghost-btn sm danger del">Delete</button></td></tr>`;
+        <td class="r acts"><button class="btn primary sm save" hidden>Save</button><button class="btn ghost-btn sm tok" title="New tracker token for the bus phone (the old one stops working)"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/></svg>Token</button><button class="btn ghost-btn sm danger del icon" title="Delete bus ${esc(b.id)}" aria-label="Delete bus ${esc(b.id)}"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></td></tr>`;
     }).join('');
   }
   $('#busRows').addEventListener('input', e => { const tr = e.target.closest('tr'); if (tr) tr.querySelector('.save').hidden = false; });
@@ -122,11 +123,13 @@
     $('#sharerEmpty').hidden = S.sharers.length > 0;
     $('#sharerRows').innerHTML = S.sharers.map(x => {
       const [label, cls] = ST[x.status] || [x.status, 'wait'];
-      return `<tr><td><b>${esc(x.studentId)}</b></td><td>Bus ${esc(x.busId)}</td><td class="st-${cls}">${esc(label)}</td><td class="small">${fmtWhen(x.startedAt)}</td><td class="small">${ago(x.lastTs) || ''}</td>
+      return `<tr><td><b>${esc(x.username ? '@' + x.username : x.studentId)}</b></td><td>Bus ${esc(x.busId)}</td><td class="st-${cls}">${esc(label)}</td><td class="small">${fmtWhen(x.startedAt)}</td><td class="small">${ago(x.lastTs) || ''}</td>
         <td class="r"><button class="btn ghost-btn sm danger" data-block="${esc(x.studentId)}">Block</button></td></tr>`;
     }).join('');
     $('#blockEmpty').hidden = S.blocked.length > 0;
-    $('#blockRows').innerHTML = S.blocked.map(x => `<tr><td><b>${esc(x.studentId)}</b></td><td class="small">Blocked ${fmtWhen(x.at)}</td><td class="r"><button class="btn ghost-btn sm" data-unblock="${esc(x.studentId)}">Unblock</button></td></tr>`).join('');
+    const [af, at] = (S.windows?.am || '06:00-12:00').split('-'), [pf, pt] = (S.windows?.pm || '17:00-22:00').split('-');
+    if (document.activeElement?.closest('#winForm') == null) { $('#amFrom').value = af; $('#amTo').value = at; $('#pmFrom').value = pf; $('#pmTo').value = pt; }
+    $('#blockRows').innerHTML = S.blocked.map(x => `<tr><td><b>${esc(x.username ? '@' + x.username : x.studentId)}</b></td><td class="small">Blocked ${fmtWhen(x.at)}</td><td class="r"><button class="btn ghost-btn sm" data-unblock="${esc(x.studentId)}">Unblock</button></td></tr>`).join('');
   }
   $('#crowdOn').addEventListener('change', async e => {
     try { await act('setCrowd', { enabled: e.target.checked }); toast(e.target.checked ? 'Student sharing turned on' : 'Student sharing turned off'); renderSharing(); }
@@ -135,9 +138,118 @@
   $('#tab-sharing').addEventListener('click', async e => {
     const b = e.target.closest('[data-block]'), u = e.target.closest('[data-unblock]');
     try {
-      if (b && confirm(`Block student ${b.dataset.block} from sharing location?`)) { await act('blockSharer', { studentId: b.dataset.block }); toast('Student blocked'); renderSharing(); }
+      if (b && confirm(`Block this rider from sharing location?`)) { await act('blockSharer', { studentId: b.dataset.block }); toast('Student blocked'); renderSharing(); }
       if (u) { await act('unblockSharer', { studentId: u.dataset.unblock }); toast('Student unblocked'); renderSharing(); }
     } catch (x) { toast(x.message, true); }
+  });
+
+  $('#winForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    try { await act('setWindows', { am: `${$('#amFrom').value}-${$('#amTo').value}`, pm: `${$('#pmFrom').value}-${$('#pmTo').value}` }); toast('Sharing hours saved'); renderSharing(); }
+    catch (x) { toast(x.message, true); }
+  });
+
+  /* ---------- Community ---------- */
+  const routeName = id => S.routes.find(r => r.id === id)?.name || '—';
+  async function loadCommunity() { try { S = await api('admin?community=1'); renderCommunity(); counts(); } catch (x) { toast(x.message, true); } }
+  const cact = async (action, body, msg) => { try { await act(action, { ...body, community: true }); toast(msg); renderCommunity(); renderSharing(); counts(); } catch (x) { toast(x.message, true); } };
+  function renderCommunity() {
+    const photos = S.photos || [];
+    $('#photoEmpty').hidden = photos.length > 0;
+    $('#photoGrid').innerHTML = photos.map(p => `<figure class="ph ${p.hidden ? 'hid' : ''}" data-uid="${esc(p.userId)}"><img src="${esc(p.src)}" alt="">
+      <figcaption><b>@${esc(p.username)}</b><small>${p.hidden ? 'Hidden · ' : ''}${p.reports ? `<span class="st-bad">⚠ Reported by ${p.reports}</span>` : 'Uploaded ' + (ago(p.at) || '')}</small>
+      <span>${p.hidden || p.reports ? '<button class="btn ghost-btn sm" data-keep>Looks fine</button>' : ''}<button class="btn ghost-btn sm danger" data-rmphoto>Remove</button><button class="btn ghost-btn sm danger" data-banphoto>Remove + ban uploads</button></span></figcaption></figure>`).join('');
+    const q = $('#userQ').value.trim().toLowerCase(), users = (S.users || []).filter(u => !q || u.username.toLowerCase().includes(q));
+    $('#userEmpty').hidden = users.length > 0;
+    $('#userRows').innerHTML = users.slice(0, 150).map(u => `<tr data-uid="${esc(u.id)}"><td>${esc(u.emoji || '')} <b>@${esc(u.username)}</b>${u.batch ? ` <small class="muted">Batch ${u.batch}</small>` : ''}</td>
+      <td class="small">${esc(routeName(u.routeId))}</td><td>${u.xp}</td><td class="small">${ago(u.seenAt) || ''}</td>
+      <td class="small">${[u.reports ? `<span class="st-bad">${u.reports} report${u.reports > 1 ? 's' : ''}</span>` : '', u.blocked ? '<span class="st-bad">sharing blocked</span>' : '', u.noPhoto ? '<span class="st-wait">no photo uploads</span>' : ''].filter(Boolean).join(' · ')}</td>
+      <td class="r"><button class="btn ghost-btn sm" data-rename>Reset name</button>${u.noPhoto ? '<button class="btn ghost-btn sm" data-allowphoto>Allow photos</button>' : '<button class="btn ghost-btn sm danger" data-nophoto>Ban photos</button>'}${u.blocked ? '<button class="btn ghost-btn sm" data-ublock>Unblock</button>' : '<button class="btn ghost-btn sm danger" data-ublockit>Block sharing</button>'}</td></tr>`).join('');
+    const tr = S.treats || [];
+    $('#treatEmpty').hidden = tr.length > 0;
+    const TS = { pending: ['Waiting for treat', 'wait'], paid: ['Treat given', 'ok'], vouched: ['Confirmed by riders', 'ok'], cancelled: ['Cancelled', 'bad'] };
+    $('#treatRows').innerHTML = tr.map(t => `<tr data-tid="${t.id}"><td class="small">${esc(t.week)}</td><td>${esc(routeName(t.routeId))}</td><td><b>@${esc(t.champion || '?')}</b></td>
+      <td class="small st-${(TS[t.status] || [])[1] || 'wait'}">${esc((TS[t.status] || [t.status])[0])}${t.giver ? ` by @${esc(t.giver)}` : ''}${t.status === 'pending' && t.votes ? ` · ${t.votes} rider confirmations` : ''}</td>
+      <td class="r">${t.status === 'pending' ? '<button class="btn ghost-btn sm" data-settle="paid">Mark given</button><button class="btn ghost-btn sm danger" data-settle="cancelled">Cancel</button>' : '<button class="btn ghost-btn sm" data-settle="pending">Reopen</button>'}</td></tr>`).join('');
+  }
+  $('#userQ').addEventListener('input', renderCommunity);
+  $('#tab-community').addEventListener('click', e => {
+    const uid = e.target.closest('[data-uid]')?.dataset.uid, tid = e.target.closest('[data-tid]')?.dataset.tid, has = s => e.target.closest(s);
+    if (has('[data-keep]')) return cact('keepPhoto', { userId: uid }, 'Photo kept');
+    if (has('[data-rmphoto]')) return cact('removePhoto', { userId: uid }, 'Photo removed');
+    if (has('[data-banphoto]')) { if (confirm('Remove this photo and stop this rider from uploading photos?')) cact('removePhoto', { userId: uid, ban: true }, 'Photo removed, uploads banned'); return; }
+    if (has('[data-nophoto]')) return cact('removePhoto', { userId: uid, ban: true }, 'Photo uploads banned');
+    if (has('[data-allowphoto]')) return cact('setPhotoBan', { userId: uid, ban: false }, 'Photo uploads allowed');
+    if (has('[data-rename]')) { if (confirm('Replace this username with a random one (e.g. rider_3fa9c1)? The rider can pick a new name.')) cact('renameUser', { userId: uid }, 'Username reset'); return; }
+    if (has('[data-ublockit]')) { if (confirm('Block this rider from sharing location? They also disappear from leaderboards.')) cact('blockSharer', { studentId: uid }, 'Sharing blocked'); return; }
+    if (has('[data-ublock]')) return cact('unblockSharer', { studentId: uid }, 'Unblocked');
+    const st = has('[data-settle]'); if (st) return cact('settleTreat', { id: tid, status: st.dataset.settle }, 'Treat updated');
+  });
+
+  /* ---------- tab counters ---------- */
+  function counts() {
+    const rep = (S.users || []).filter(u => u.reports).length, fb = (S.feedback || []).filter(f => f.status === 'new').length;
+    $('#repN').hidden = !rep; $('#repN').textContent = rep; $('#fbN').hidden = !fb; $('#fbN').textContent = fb;
+    $('#pushN').textContent = S.push ? `${S.push.subscribers} phone${S.push.subscribers === 1 ? '' : 's'} have push notifications on.` : '';
+  }
+
+  /* ---------- Calendar ---------- */
+  const DOW = [[6, 'Sat'], [0, 'Sun'], [1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri']];
+  const dateTxt = d => new Date(d + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  function renderCalendar() {
+    const c = S.calendar || { openDays: [6, 0, 1, 2, 3], special: {} };
+    $('#openDays').innerHTML = DOW.map(([n, l]) => `<label class="daybox"><input type="checkbox" value="${n}" ${c.openDays.includes(n) ? 'checked' : ''}><span>${l}</span></label>`).join('');
+    const sp = Object.entries(c.special).filter(([d]) => d >= S.today).sort();
+    $('#specEmpty').hidden = sp.length > 0;
+    $('#specRows').innerHTML = sp.map(([d, x]) => `<tr data-day="${esc(d)}"><td><b>${dateTxt(d)}</b></td><td class="${x.open ? 'st-ok' : 'st-bad'}">${x.open ? 'Open (buses run)' : 'Closed (no buses)'}</td><td>${esc(x.note || '')}</td>
+      <td class="r"><button class="btn ghost-btn sm danger" data-delday>Remove</button></td></tr>`).join('');
+    const b = S.boost;
+    $('#boNow').textContent = b ? `Active / planned: ${b.label} · ${b.mult}× · ${dateTxt(b.from)} → ${dateTxt(b.to)}` : 'No boost planned.';
+    if (b && !$('#boFrom').value) { $('#boFrom').value = b.from; $('#boTo').value = b.to; $('#boMult').value = String(b.mult); $('#boLabel').value = b.label; }
+  }
+  $('#saveDays').addEventListener('click', async () => {
+    const days = [...document.querySelectorAll('#openDays input:checked')].map(x => Number(x.value));
+    try { await act('setOpenDays', { days }); toast('Normal week saved'); renderCalendar(); } catch (x) { toast(x.message, true); }
+  });
+  $('#specForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    try { await act('setSpecialDay', { day: $('#spDay').value, open: $('#spOpen').value === '1', note: $('#spNote').value }); $('#spNote').value = ''; toast('Special day saved'); renderCalendar(); }
+    catch (x) { toast(x.message, true); }
+  });
+  $('#specRows').addEventListener('click', async e => {
+    if (!e.target.closest('[data-delday]')) return;
+    try { await act('deleteSpecialDay', { day: e.target.closest('tr').dataset.day }); toast('Removed'); renderCalendar(); } catch (x) { toast(x.message, true); }
+  });
+  $('#boostForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    try { await act('setBoost', { from: $('#boFrom').value, to: $('#boTo').value, mult: Number($('#boMult').value), label: $('#boLabel').value }); toast('XP boost saved'); renderCalendar(); }
+    catch (x) { toast(x.message, true); }
+  });
+  $('#boClear').addEventListener('click', async () => {
+    try { await act('clearBoost'); ['#boFrom', '#boTo', '#boLabel'].forEach(s => ($(s).value = '')); toast('Boost removed'); renderCalendar(); } catch (x) { toast(x.message, true); }
+  });
+
+  /* ---------- Feedback ---------- */
+  const KIND = { bus: '🚌 Bus', driver: '🧑‍✈️ Driver / staff', schedule: '🕒 Schedule', app: '📱 App', idea: '💡 Idea', other: '💬 Other' };
+  function renderFeedback() {
+    const keep = $('#fbRoute').value;
+    $('#fbRoute').innerHTML = '<option value="">All routes</option><option value="-">No route</option>' + S.routes.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('');
+    $('#fbRoute').value = keep;
+    const rf = $('#fbRoute').value, sf = $('#fbStatus').value;
+    const list = (S.feedback || []).filter(f => (!rf || (rf === '-' ? !f.routeId : f.routeId === rf)) && (!sf || f.status === sf));
+    $('#fbEmpty').hidden = list.length > 0;
+    $('#fbList').innerHTML = list.map(f => `<article class="a-card fb ${f.status}" data-fid="${f.id}">
+      <div class="fb-top"><span class="pill info">${esc(routeName(f.routeId) === '—' ? 'No route' : routeName(f.routeId))}</span><span class="small">${KIND[f.kind] || esc(f.kind)}</span>
+        <span class="small muted">${fmtWhen(f.createdAt)} · ${f.username ? '@' + esc(f.username) : 'anonymous'}${f.contact ? ' · ' + esc(f.contact) : ''}</span></div>
+      <p class="ntext">${esc(f.message)}</p>
+      ${f.attachments.length ? `<p class="small">📎 ${f.attachments.length} attachment(s)</p>` : ''}
+      <div class="a-row end">${['new', 'seen', 'done'].map(s => `<button class="btn ghost-btn sm ${f.status === s ? 'cur' : ''}" data-fst="${s}">${{ new: 'New', seen: 'Seen', done: 'Done ✓' }[s]}</button>`).join('')}</div></article>`).join('');
+    counts();
+  }
+  $('#fbRoute').addEventListener('change', renderFeedback); $('#fbStatus').addEventListener('change', renderFeedback);
+  $('#fbList').addEventListener('click', async e => {
+    const b = e.target.closest('[data-fst]'); if (!b) return;
+    try { await act('setFeedback', { id: b.closest('[data-fid]').dataset.fid, status: b.dataset.fst }); renderFeedback(); } catch (x) { toast(x.message, true); }
   });
 
   /* ---------- Notices ---------- */
@@ -158,9 +270,9 @@
     e.preventDefault();
     const exp = $('#nExp').value ? new Date($('#nExp').value).getTime() : null;
     try {
-      await act('addNotice', { message: $('#nMsg').value, level: $('#nLevel').value, expiresAt: exp });
-      $('#nMsg').value = ''; $('#nExp').value = ''; $('#nCount').textContent = '0 / 500';
-      toast('Notice published to all apps'); renderNotices();
+      const j = await act('addNotice', { message: $('#nMsg').value, level: $('#nLevel').value, expiresAt: exp, push: $('#nPush').checked });
+      $('#nMsg').value = ''; $('#nExp').value = ''; $('#nCount').textContent = '0 / 500'; $('#nPush').checked = false;
+      toast(j.pushed != null ? `Notice published; push going to ${j.pushed} phone${j.pushed === 1 ? '' : 's'}` : 'Notice published to all apps'); renderNotices();
     } catch (x) { toast(x.message, true); }
   });
   $('#noticeRows').addEventListener('click', async e => {
@@ -199,6 +311,37 @@
   $('#rColor').addEventListener('input', e => { E.color = e.target.value; dirty = true; drawRoute(); });
 
   let placing = null; // index of the stop waiting for a map click
+  // Where a stop added from the map / search goes: 'smart' (least detour), 'start' (new first stop) or 'end' (just before campus)
+  let addMode = 'smart';
+  const km = (a, b) => Math.hypot((a.lat - b.lat) * 111, (a.lng - b.lng) * 102 * Math.cos(a.lat * Math.PI / 180) / Math.cos(23.8 * Math.PI / 180));
+  /** Index where a new stop adds the least extra distance. Before the first stop = the route is extended at its start. */
+  function bestIndex(p) {
+    const pts = [...E.stops.filter(hasPos), S.campus];
+    if (pts.length === 1) return 0;
+    let best = 0, cost = km(p, pts[0]) * 1.15 + (km(p, S.campus) < km(pts[0], S.campus) ? 50 : 0); // extend the start (only if p is farther out)
+    for (let i = 1; i < pts.length; i++) {
+      const c = km(pts[i - 1], p) + km(p, pts[i]) - km(pts[i - 1], pts[i]);
+      if (c < cost) { cost = c; best = i; }
+    }
+    // map back to an index in E.stops (stops without a location keep their place)
+    const placed = E.stops.map((s, i) => (hasPos(s) ? i : -1)).filter(i => i >= 0);
+    return best >= placed.length ? E.stops.length : placed[best];
+  }
+  function addStop(stop, how = addMode) {
+    const i = how === 'start' ? 0 : how === 'end' ? E.stops.length : bestIndex(stop);
+    E.stops.splice(i, 0, stop); dirty = true;
+    if (addMode === 'start') setMode('smart'); // "Extend start" is for one click
+    renderStops(); drawRoute();
+    toast(i === 0 && E.stops.length > 1 ? `"${stop.name}" is now the first stop: the route starts further out. Save to apply.` : `Added as stop ${i + 1}. Drag the marker to adjust.`);
+    return i;
+  }
+  function setMode(m) { addMode = m; document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-checked', b.dataset.mode === m)); }
+  document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => { setMode(b.dataset.mode); if (b.dataset.mode === 'start') toast('Click the map where the route should now start.'); }));
+  $('#shortenStart').addEventListener('click', () => {
+    if (!E || E.stops.length < 2) return toast('A route needs at least one stop besides campus.', true);
+    if (!confirm(`Shorten the route: remove the first stop "${E.stops[0].name}"? The route will start at "${E.stops[1].name}".`)) return;
+    E.stops.shift(); dirty = true; setPlacing(null); renderStops(); drawRoute(); toast('First stop removed. Save to apply.');
+  });
   function setPlacing(i) {
     placing = i;
     const el = $('#placing');
@@ -210,14 +353,17 @@
     const n = E.stops.length;
     $('#stopList').innerHTML = E.stops.map((s, i) => {
       const flag = !hasPos(s) ? '<span class="flag bad" title="Not on the map yet">No location</span>' : s.auto ? '<span class="flag wait" title="Found automatically: check the marker">Check</span>' : '';
-      return `<li data-i="${i}" class="${placing === i ? 'placing' : ''}">
-        <span class="n ${!hasPos(s) ? 'miss' : s.auto ? 'auto' : ''}">${i + 1}</span>
+      return `<li data-i="${i}" class="${placing === i ? 'placing' : ''}${i === 0 ? ' first' : ''}">
+        <span class="n ${!hasPos(s) ? 'miss' : s.auto ? 'auto' : ''}" title="${i === 0 ? 'Start of the route' : ''}">${i === 0 ? 'S' : i + 1}</span>
         <span class="nm-wrap"><input class="nm" value="${esc(s.name)}" maxlength="60" aria-label="Stop ${i + 1} name">${flag}</span>
         <input class="tm" type="time" value="${esc(s.time || '')}" aria-label="Stop ${i + 1} pick-up time">
         <span class="act"><button data-a="place" title="Place on map" aria-label="Place on map">&#128205;</button><button data-a="focus" title="Show on map" aria-label="Show on map" ${hasPos(s) ? '' : 'disabled'}>&#9678;</button><button data-a="up" ${i === 0 ? 'disabled' : ''} aria-label="Move up">&uarr;</button><button data-a="down" ${i === n - 1 ? 'disabled' : ''} aria-label="Move down">&darr;</button><button data-a="del" aria-label="Delete stop">&times;</button></span></li>`;
     }).join('')
       + `<li class="campus"><span class="n">${n + 1}</span><span class="nm-wrap"><input value="IUBAT Campus (fixed end point)" disabled aria-label="Campus"></span><span></span><span class="act"></span></li>`;
     if (!n) $('#stopList').insertAdjacentHTML('afterbegin', '<li class="muted small" style="display:block">No stops yet. Click the map, search a place, or use Add stops in bulk.</li>');
+    const saved = E.id && S.routes.find(r => r.id === E.id);
+    let len = 0; if (saved && !dirty) for (let k = 1; k < saved.geometry.length; k++) len += km({ lat: saved.geometry[k - 1][1], lng: saved.geometry[k - 1][0] }, { lat: saved.geometry[k][1], lng: saved.geometry[k][0] });
+    $('#routeLen').textContent = n ? `Starts at "${E.stops[0].name}"${len ? ` · about ${len.toFixed(1)} km by road` : dirty ? ' · unsaved changes' : ''}` : '';
   }
   $('#stopList').addEventListener('input', e => {
     const li = e.target.closest('li[data-i]'); if (!li) return;
@@ -359,9 +505,8 @@
         const row = $(`#stopList li[data-i="${done}"]`); if (row) setTimeout(() => row.scrollIntoView({ behavior: 'smooth', block: 'center' }), 600);
         return;
       }
-      E.stops.push({ name: `Stop ${E.stops.length + 1}`, lat: +e.lngLat.lat.toFixed(6), lng: +e.lngLat.lng.toFixed(6) });
-      dirty = true; renderStops(); drawRoute();
-      const inp = $('#stopList li[data-i="' + (E.stops.length - 1) + '"] input'); if (inp) { inp.focus(); inp.select(); }
+      const i = addStop({ name: addMode === 'start' ? 'New start' : `Stop ${E.stops.length + 1}`, lat: +e.lngLat.lat.toFixed(6), lng: +e.lngLat.lng.toFixed(6) });
+      const inp = $('#stopList li[data-i="' + i + '"] input.nm'); if (inp) { inp.focus(); inp.select(); }
     });
     return mapReady;
   }
@@ -373,7 +518,7 @@
     if (!E) { map.getSource('draft').setData({ type: 'FeatureCollection', features: [] }); map.getSource('saved').setData({ type: 'FeatureCollection', features: [] }); return; }
     E.stops.forEach((s, i) => {
       if (!hasPos(s)) return;
-      const m = new maplibregl.Marker({ element: pin(i + 1, s.auto ? 'auto' : ''), draggable: true }).setLngLat([s.lng, s.lat]).addTo(map);
+      const m = new maplibregl.Marker({ element: pin(i === 0 ? 'START' : i + 1, (s.auto ? 'auto ' : '') + (i === 0 ? 'start' : '')), draggable: true }).setLngLat([s.lng, s.lat]).addTo(map);
       m.on('dragend', () => { const p = m.getLngLat(); s.lat = +p.lat.toFixed(6); s.lng = +p.lng.toFixed(6); delete s.auto; dirty = true; renderStops(); drawRoute(); });
       markers.push(m);
     });
@@ -399,9 +544,9 @@
       await initMap(); const at = [+j[0].lon, +j[0].lat]; map.flyTo({ center: at, zoom: 15.5 });
       if (E) {
         const box = document.createElement('div'); box.className = 'a-pop';
-        box.innerHTML = `<b>${esc(j[0].display_name.split(',').slice(0, 2).join(','))}</b><button class="btn primary sm">Add “${esc(q)}” as stop</button>`;
+        box.innerHTML = `<b>${esc(j[0].display_name.split(',').slice(0, 2).join(','))}</b><button class="btn primary sm" data-how="smart">Add “${esc(q)}” as a stop</button><button class="btn ghost-btn sm" data-how="start">Make it the new start</button>`;
         const pop = new maplibregl.Popup({ closeOnClick: true, maxWidth: '260px' }).setLngLat(at).setDOMContent(box).addTo(map);
-        box.querySelector('button').onclick = () => { E.stops.push({ name: q.slice(0, 60), lat: +at[1].toFixed(6), lng: +at[0].toFixed(6) }); dirty = true; renderStops(); drawRoute(); pop.remove(); toast('Stop added. Drag the marker if needed.'); };
+        box.querySelectorAll('button').forEach(b => (b.onclick = () => { addStop({ name: q.slice(0, 60), lat: +at[1].toFixed(6), lng: +at[0].toFixed(6) }, b.dataset.how); pop.remove(); }));
       }
     } catch { toast('Search failed. Try again.', true); }
   });

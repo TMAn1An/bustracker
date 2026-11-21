@@ -5,7 +5,7 @@
 (function () {
   const SEND_MS = 10000; // every 10 s: enough for the map (the app fills the gaps) and kind to the free hosting quota
   const Share = {
-    busId: null, status: null, message: '', error: null, onChange: () => {},
+    busId: null, status: null, message: '', error: null, xp: 0, thanks: 0, onChange: () => {}, onXp: () => {},
     watch: null, wake: null, pending: null, lastPos: null, timer: null, last: 0, token: null,
 
     get active() { return this.watch !== null; },
@@ -13,7 +13,7 @@
     start(busId, token) {
       if (!('geolocation' in navigator)) { this._set(null, 'Location is not available on this device.', true); return; }
       this.stop(true);
-      this.busId = busId; this.token = token; this.status = 'starting'; this.message = 'Getting your location…'; this.error = null;
+      this.busId = busId; this.token = token; this.status = 'starting'; this.message = 'Getting your location…'; this.error = null; this.xp = 0; this.thanks = 0;
       this.lastPos = null;
       this.watch = navigator.geolocation.watchPosition(p => { this.pending = p; this.lastPos = p; this._flush(); }, e => {
         if (e.code === 1) { this.stop(); this._set(null, 'Location permission was denied. Allow it in your browser settings to share.', true); }
@@ -49,7 +49,9 @@
           body: JSON.stringify({ busId: this.busId, lat: c.latitude, lng: c.longitude, acc: c.accuracy, speed: c.speed ?? undefined, heading: c.heading ?? undefined }) });
         const j = await res.json().catch(() => ({}));
         if (!res.ok) { this.stop(); this._set(null, j.error || 'Sharing stopped.', true); return; }
-        if (j.status === 'arrived') { await this.stop(true); this.busId = null; this._set(null, j.message); return; }
+        if (j.xp != null && j.xp > this.xp) { const gain = j.xp - this.xp; this.xp = j.xp; this.onXp(gain, j.xp); }
+        if (j.thanks != null) this.thanks = j.thanks;
+        if (j.status === 'arrived') { await this.stop(true); this.busId = null; this._set(null, `${j.message}${this.xp ? ` You earned ${this.xp} XP on this ride.` : ''}`); return; }
         this._set(j.status, j.message);
       } catch { this._set(this.status, 'Network problem, retrying…'); }
     },

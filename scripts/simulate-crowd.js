@@ -5,19 +5,23 @@
 //   D location jumping around                -> "jump"
 //   E moving rider, verified later, but far from A -> "disagree" (A was verified first)
 // Run: npm run dev, then node scripts/simulate-crowd.js
-import { db, hashPassword, ensureSchema } from '../api/_lib.js';
+import { db, ensureSchema } from '../api/_lib.js';
 if (process.env.TURSO_DATABASE_URL) { console.error('Refusing to run against a remote database.'); process.exit(1); }
 const BASE = process.argv[2] || 'http://localhost:3000', DURATION = 170e3, TICK = 3000;
 await ensureSchema();
 
-for (const id of ['rider-a', 'rider-b', 'rider-c', 'rider-d', 'rider-e'])
-  await db().execute({ sql: 'INSERT INTO students (id,name,pass) VALUES (?,?,?) ON CONFLICT(id) DO NOTHING', args: [id, 'Test rider', hashPassword('test1234')] });
+// test riders are contributor accounts (no password); sharing is opened all day for the test (restored at the end)
+await db().execute(`DELETE FROM users WHERE username LIKE 'sim_rider_%'`);
 await db().execute(`DELETE FROM positions WHERE bus_id='11'`);
-await db().execute(`DELETE FROM share_sessions`); await db().execute(`DELETE FROM share_fixes`);
+await db().execute(`DELETE FROM share_sessions`); await db().execute(`DELETE FROM share_fixes`); await db().execute(`DELETE FROM trips WHERE bus_id='11'`);
+const oldWin = (await db().execute(`SELECT value FROM settings WHERE key='win_am'`)).rows[0]?.value;
+await db().execute(`INSERT INTO settings (key,value) VALUES ('win_am','00:00-23:59') ON CONFLICT(key) DO UPDATE SET value=excluded.value`);
+const restore = async () => oldWin ? db().execute({ sql: `UPDATE settings SET value=? WHERE key='win_am'`, args: [oldWin] }) : db().execute(`DELETE FROM settings WHERE key='win_am'`);
 
-const login = async id => (await (await fetch(BASE + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, password: 'test1234' }) })).json()).token;
-const tokens = Object.fromEntries(await Promise.all(['a', 'b', 'c', 'd', 'e'].map(async k => [k, await login('rider-' + k)])));
-const cfg = await (await fetch(BASE + '/api/routes', { headers: { Authorization: 'Bearer ' + tokens.a } })).json();
+const join = async k => (await (await fetch(BASE + '/api/me', { method: 'POST', headers: { 'content-type': 'application/json' },
+  body: JSON.stringify({ action: 'join', username: 'sim_rider_' + k, emoji: '🦊', routeId: 'rajendrapur' }) })).json()).token;
+const tokens = Object.fromEntries(await Promise.all(['a', 'b', 'c', 'd', 'e'].map(async k => [k, await join(k)])));
+const cfg = await (await fetch(BASE + '/api/routes')).json();
 const geo = cfg.routes.find(r => r.id === cfg.buses.find(b => b.id === '11').routeId).geometry;
 
 const toM = (a, b) => [(b[0] - a[0]) * 102000, (b[1] - a[1]) * 111000];
@@ -34,7 +38,7 @@ const riders = {
   d: t => { const p = at(2000 + v * t + (Math.floor(t / 3) % 2 ? 6000 : 0)); return { lat: p.lat, lng: p.lng }; },
   e: t => (t < 20 ? null : (() => { const p = at(6000 + v * t); return { lat: p.lat + jitter(), lng: p.lng + jitter() }; })()),
 };
-const last = {};
+const last = {}; let seatSent = false;
 async function tick() {
   const t = (Date.now() - t0) / 1000;
   const line = [];
@@ -42,10 +46,19 @@ async function tick() {
     const p = f(t); if (!p) { line.push(`${k.toUpperCase()}:-`); continue; }
     const r = await fetch(BASE + '/api/share', { method: 'POST', headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + tokens[k] },
       body: JSON.stringify({ busId: '11', lat: p.lat, lng: p.lng, acc: 10, speed: k === 'b' || k === 'c' ? 0 : v }) });
-    const j = await r.json(); last[k] = j.status || j.error; line.push(`${k.toUpperCase()}:${last[k]}`);
+    const j = await r.json(); last[k] = j.status || j.error;
+    if (k === 'a' && j.status === 'verified' && !seatSent) { // a verified rider can report seats
+      seatSent = true;
+      const sr = await fetch(BASE + '/api/share', { method: 'POST', headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + tokens.a }, body: JSON.stringify({ action: 'seats', level: 'few' }) });
+      console.log('  seat report by A:', JSON.stringify(await sr.json()));
+    } line.push(`${k.toUpperCase()}:${last[k]}${j.xp ? `(${j.xp}xp)` : ''}`);
   }
   const pos = (await db().execute(`SELECT source, ts FROM positions WHERE bus_id='11'`)).rows[0];
   console.log(`t=${String(Math.round(t)).padStart(3)}s  ${line.join('  ')}  | bus: ${pos ? pos.source : 'no position'}`);
 }
 const iv = setInterval(tick, TICK); await tick();
-setTimeout(() => { clearInterval(iv); console.log('FINAL', last); process.exit(0); }, DURATION);
+setTimeout(async () => {
+  clearInterval(iv); console.log('FINAL', last);
+  console.log('Leaderboard today:', (await (await fetch(BASE + '/api/board')).json()).today.map(x => `${x.username} ${x.pts}xp`).join(', ') || '(empty)');
+  await restore(); process.exit(0);
+}, DURATION);

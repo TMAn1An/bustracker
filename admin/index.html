@@ -39,6 +39,9 @@
         <button role="tab" data-tab="routes" aria-selected="false">Routes</button>
         <button role="tab" data-tab="notices" aria-selected="false">Notices</button>
         <button role="tab" data-tab="sharing" aria-selected="false">Sharing</button>
+        <button role="tab" data-tab="calendar" aria-selected="false">Calendar</button>
+        <button role="tab" data-tab="community" aria-selected="false">Community <b class="tabn" id="repN" hidden></b></button>
+        <button role="tab" data-tab="feedback" aria-selected="false">Feedback <b class="tabn" id="fbN" hidden></b></button>
       </nav>
       <button class="ghost light" id="aout">Sign out</button>
     </div>
@@ -56,7 +59,7 @@
     </div>
     <div class="a-card a-table-wrap">
       <table class="a-table">
-        <thead><tr><th>Bus no.</th><th>Route</th><th>Leaves start</th><th>Leaves campus</th><th>Days</th><th>Last seen</th><th class="r">Actions</th></tr></thead>
+        <thead><tr><th>Bus</th><th>Route</th><th>Leaves start</th><th>Leaves campus</th><th>Days</th><th>Last seen</th><th class="r">Actions</th></tr></thead>
         <tbody id="busRows"></tbody>
       </table>
       <p id="busEmpty" class="muted a-empty" hidden>No buses yet. Add one above.</p>
@@ -80,6 +83,16 @@
         <p class="muted small">Stops go in driving order, starting from the far end; the route always ends at IUBAT Campus.
           Add them by <b>clicking the map</b>, by <b>searching</b> a place, or paste the whole list with <b>Add stops in bulk</b>. Drag a marker to fix its position.</p>
         <div class="a-row"><button class="btn ghost-btn sm" id="bulkBtn" type="button">Add stops in bulk</button><span id="placing" class="small st-wait" hidden></span></div>
+        <div class="a-tools">
+          <span class="small muted">Click the map to add a stop:</span>
+          <div class="a-seg" role="radiogroup" aria-label="Where a new stop goes">
+            <button type="button" data-mode="smart" aria-checked="true" title="Put the stop where it makes the smallest detour (a point beyond the start becomes the new start)">Best position</button>
+            <button type="button" data-mode="start" aria-checked="false" title="The next stop becomes the first stop (route starts further out)">⤒ Extend start</button>
+            <button type="button" data-mode="end" aria-checked="false" title="The next stop goes last, just before campus">Before campus</button>
+          </div>
+          <button type="button" class="btn ghost-btn sm" id="shortenStart" title="Remove the first stop: the route then starts at the next stop">✂ Shorten start</button>
+          <span id="routeLen" class="small muted"></span>
+        </div>
         <div class="a-stops-head small muted"><span></span><span>Stop</span><span>Pick-up time</span><span></span></div>
         <ol id="stopList" class="a-stops"></ol>
         <div class="a-row end">
@@ -99,12 +112,63 @@
   <!-- Sharing (crowd mode) -->
   <section id="tab-sharing" class="a-page" hidden>
     <div class="a-head"><div><h2>Student location sharing</h2><p class="muted">Riders on a bus can share their phone location for that bus. Every location is checked automatically (on the route, moving like a vehicle, no jumps) before others see it. The bus phone always has priority.</p></div></div>
-    <div class="a-card a-form"><label class="switch"><input type="checkbox" id="crowdOn"><span></span><b>Allow students to share bus location</b></label></div>
+    <div class="a-card a-form"><label class="switch"><input type="checkbox" id="crowdOn"><span></span><b>Allow riders to share bus location</b></label>
+      <form id="winForm" class="a-row">
+        <label class="field"><span>Morning: opens</span><input type="time" id="amFrom" required></label><label class="field"><span>latest end</span><input type="time" id="amTo" required></label>
+        <label class="field"><span>Evening: opens</span><input type="time" id="pmFrom" required></label><label class="field"><span>latest end</span><input type="time" id="pmTo" required></label>
+        <button class="btn primary sm">Save hours</button></form>
+      <p class="muted small">Riders can share from the opening time until the bus reaches campus (morning) or the end of its route (evening); the latest end is a hard stop. Bangladesh time.</p></div>
     <h3 class="a-sub">Sharing now (last 30 min)</h3>
     <div class="a-card a-table-wrap"><table class="a-table"><thead><tr><th>Student ID</th><th>Bus</th><th>Check status</th><th>Started</th><th>Last update</th><th class="r"></th></tr></thead><tbody id="sharerRows"></tbody></table>
       <p id="sharerEmpty" class="muted a-empty" hidden>Nobody is sharing right now.</p></div>
     <h3 class="a-sub">Blocked from sharing</h3>
     <div class="a-card a-table-wrap"><table class="a-table"><tbody id="blockRows"></tbody></table><p id="blockEmpty" class="muted a-empty" hidden>No blocked students.</p></div>
+  </section>
+
+  <!-- Calendar: open days, special days, XP boost -->
+  <section id="tab-calendar" class="a-page" hidden>
+    <div class="a-head"><div><h2>University calendar</h2><p class="muted">Buses, sharing, timetable estimates and push reminders follow this calendar. On a special open day every bus runs.</p></div></div>
+    <div class="a-card a-form">
+      <b>Normal week: open on</b>
+      <div class="dayboxes" id="openDays"></div>
+      <div class="a-row"><button class="btn primary sm" id="saveDays" type="button">Save week</button><span class="muted small">Default: Saturday to Wednesday.</span></div>
+    </div>
+    <h3 class="a-sub">Special days</h3>
+    <form id="specForm" class="a-card a-form"><div class="a-row">
+      <label class="field"><span>Date</span><input type="date" id="spDay" required></label>
+      <label class="field"><span>Type</span><select id="spOpen"><option value="1">Open (exam, program…)</option><option value="0">Closed (holiday)</option></select></label>
+      <label class="field grow"><span>Note shown to students</span><input id="spNote" maxlength="60" placeholder="e.g. Final exam / Victory Day"></label>
+      <button class="btn primary sm">Add day</button></div></form>
+    <div class="a-card a-table-wrap" style="margin-top:8px"><table class="a-table"><thead><tr><th>Date</th><th>Type</th><th>Note</th><th class="r"></th></tr></thead><tbody id="specRows"></tbody></table>
+      <p id="specEmpty" class="muted a-empty" hidden>No special days. The normal week applies.</p></div>
+    <h3 class="a-sub">🔥 XP boost (e.g. double XP in exam week)</h3>
+    <form id="boostForm" class="a-card a-form"><div class="a-row">
+      <label class="field"><span>From</span><input type="date" id="boFrom" required></label><label class="field"><span>To</span><input type="date" id="boTo" required></label>
+      <label class="field"><span>Boost</span><select id="boMult"><option value="1.5">1.5×</option><option value="2" selected>2×</option><option value="3">3×</option></select></label>
+      <label class="field grow"><span>Label</span><input id="boLabel" maxlength="60" placeholder="Exam week double XP"></label>
+      <button class="btn primary sm">Save boost</button><button class="btn ghost-btn sm" type="button" id="boClear">Remove</button></div>
+      <p class="muted small" id="boNow"></p></form>
+  </section>
+
+  <!-- Feedback (only admins) -->
+  <section id="tab-feedback" class="a-page" hidden>
+    <div class="a-head"><div><h2>Feedback</h2><p class="muted">From riders, with the route they picked. Only admins see this.</p></div>
+      <div class="a-inline"><select id="fbRoute" aria-label="Filter by route"></select><select id="fbStatus" aria-label="Filter by status"><option value="">All</option><option value="new" selected>New</option><option value="seen">Seen</option><option value="done">Done</option></select></div></div>
+    <div id="fbList"></div><p id="fbEmpty" class="muted a-empty" hidden>No feedback here.</p>
+  </section>
+
+  <!-- Community: contributors, photos, treats -->
+  <section id="tab-community" class="a-page" hidden>
+    <div class="a-head"><div><h2>Community</h2><p class="muted">Contributors pick a username (no password). A single report puts a photo at the top here: keep it or remove it. <span id="pushN"></span></p></div></div>
+    <h3 class="a-sub">Photos (reported first)</h3>
+    <div class="a-card"><div id="photoGrid" class="ph-grid"></div><p id="photoEmpty" class="muted a-empty" hidden>No photos yet.</p></div>
+    <h3 class="a-sub">Contributors</h3>
+    <div class="a-row"><input id="userQ" placeholder="Search username" aria-label="Search username"></div>
+    <div class="a-card a-table-wrap" style="margin-top:8px"><table class="a-table"><thead><tr><th>User</th><th>Route</th><th>XP</th><th>Last seen</th><th>Flags</th><th class="r"></th></tr></thead><tbody id="userRows"></tbody></table>
+      <p id="userEmpty" class="muted a-empty" hidden>No contributors yet.</p></div>
+    <h3 class="a-sub">Weekly champions' treats ☕</h3>
+    <div class="a-card a-table-wrap"><table class="a-table"><thead><tr><th>Week</th><th>Route</th><th>Champion</th><th>Status</th><th class="r"></th></tr></thead><tbody id="treatRows"></tbody></table>
+      <p id="treatEmpty" class="muted a-empty" hidden>No champions yet. The first ones are crowned after the first full week (Sat–Fri).</p></div>
   </section>
 
   <!-- Notices -->
@@ -115,6 +179,7 @@
       <div class="a-row">
         <label class="field"><span>Type</span><select id="nLevel"><option value="info">Notice</option><option value="urgent">Urgent</option></select></label>
         <label class="field"><span>Hide after (optional)</span><input id="nExp" type="datetime-local"></label>
+        <label class="switch small"><input type="checkbox" id="nPush"><span></span>Also send as push notification</label>
         <span class="grow"></span>
         <span id="nCount" class="small muted">0 / 500</span>
         <button class="btn primary">Publish notice</button>

@@ -30,7 +30,8 @@
     return out;
   }
   /** Bangladesh time (UTC+6, no daylight saving): weekday and minutes since midnight */
-  function dhaka(ms) { const d = new Date(ms + 6 * 3600e3); return { day: d.getUTCDay(), min: d.getUTCHours() * 60 + d.getUTCMinutes() + d.getUTCSeconds() / 60 }; }
+  let TZ = 6; // hours from UTC, from the server config (api/_config.js)
+  function dhaka(ms) { const d = new Date(ms + TZ * 3600e3); return { day: d.getUTCDay(), min: d.getUTCHours() * 60 + d.getUTCMinutes() + d.getUTCSeconds() / 60 }; }
   const hm = v => { const m = /^(\d{1,2}):(\d{2})$/.exec(v || ''); return m ? +m[1] * 60 + +m[2] : null; };
   /** Position on the route at distance s (metres from the first stop): { lng, lat, bearing } */
   function pointAt(r, s) {
@@ -70,13 +71,41 @@
   }
 
   const Feed = {
-    campus: null, routes: [], notices: [], crowdEnabled: false, rev: null, offset: 0, ok: true, onAuthFail: () => {}, onStatus: () => {}, onRoutes: () => {},
-    state: new Map(), token: null, timer: null,
+    campus: null, routes: [], notices: [], crowdEnabled: false, rev: null, offset: 0, ok: true, onStatus: () => {}, onRoutes: () => {}, onPoll: () => {},
+    state: new Map(), timer: null, running: false, trips: new Map(), riders: {}, windows: { am: [360, 720], pm: [1020, 1320] }, turnstile: null,
+    calendar: { openDays: [6, 0, 1, 2, 3], special: {} }, boost: null,
+    parseDays, hm,
+    /** Bangladesh time now (server clock): { day: weekday 0-6, min: minutes since midnight } */
+    now() { return dhaka(Date.now() + this.offset); },
+    /** 'am' (to campus), 'pm' (from campus) during the sharing windows, else null */
+    legNow() { const m = this.now().min, w = this.windows; return m >= w.am[0] && m < w.am[1] ? 'am' : m >= w.pm[0] && m < w.pm[1] ? 'pm' : null; },
+    trip(busId, leg) { return this.trips.get(busId + ':' + leg) || null; },
+    /** Bangladesh date (YYYY-MM-DD), offset in days from today */
+    get tz() { return TZ; },
+    date(add = 0) { return new Date(Date.now() + this.offset + TZ * 3600e3 + add * 864e5).toISOString().slice(0, 10); },
+    /** University calendar: special day (exam / program / holiday) or the normal week (Sat–Wed by default) */
+    special(day = this.date()) { return this.calendar.special[day] || null; },
+    isOpen(day = this.date()) { const s = this.special(day); return s ? s.open : this.calendar.openDays.includes(new Date(day + 'T00:00:00Z').getUTCDay()); },
+    /** Does this bus run on that day? Special open days: every bus. Otherwise the university must be open and the bus's own days allow it. */
+    busRuns(sched, day = this.date()) {
+      const s = this.special(day); if (s) return s.open;
+      const dow = new Date(day + 'T00:00:00Z').getUTCDay();
+      if (!this.calendar.openDays.includes(dow)) return false;
+      const d = parseDays(sched?.days); return !d || d.has(dow);
+    },
+    /** A seat report is valid until the bus reaches its next stop (people get on and off there). */
+    seatsValid(busId, seats) {
+      const st = this.state.get(busId);
+      if (!seats || seats.s == null || !st || !st.r || !st.fix || this._age(st) > OFFLINE_S) return !!seats;
+      const cur = st.fix.s, dir = st.dir;
+      return !st.r.stops.some(x => (dir > 0 ? x.s > seats.s + 40 && x.s <= cur + 30 : x.s < seats.s - 40 && x.s >= cur - 30));
+    },
+    boostNow() { const b = this.boost, d = this.date(); return b && d >= b.from && d <= b.to ? b : null; },
 
-    /** Load routes and bus->route assignment (needs a signed-in token). Safe to call again when `rev` changes. */
-    async load(token) {
-      const res = await fetch('api/routes', { headers: { Authorization: 'Bearer ' + token }, cache: 'no-store' });
-      if (res.status === 401) throw Object.assign(new Error('auth'), { auth: true });
+    /** Load routes and bus->route assignment (public). Safe to call again when `rev` changes. */
+    async load() {
+      const res = await fetch('api/routes', { cache: 'no-store' });
+      if (!res.ok) throw new Error('Cannot load routes.');
       const j = await res.json();
       this.campus = j.campus; this.rev = j.rev; lat0 = j.campus.lat; lng0 = j.campus.lng; kx = 111320 * Math.cos(lat0 * rad);
       const routes = j.routes.filter(r => r.geometry.length > 1);
@@ -92,33 +121,46 @@
       });
       this.state = next;
       this.crowdEnabled = !!j.crowdEnabled;
+      if (j.windows) this.windows = j.windows;
+      this.turnstile = j.turnstile || null;
+      if (j.calendar) this.calendar = j.calendar;
+      if (j.site && Number.isFinite(j.site.tz)) TZ = j.site.tz;
+      this.boost = j.boost || null;
+      this.offset = j.now - Date.now();
       this.notices = (j.notices || []).map(n => ({ ...n, expiresLocal: n.expiresAt ? n.expiresAt - (j.now - Date.now()) : null }));
       this.onRoutes(this);
     },
 
-    async login(id, password) {
-      let res;
-      try { res = await fetch('api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, password }) }); }
-      catch { throw new Error('Cannot reach the server. Check your internet connection.'); }
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(j.error || 'Sign-in failed.');
-      return j;
+    /**
+     * Poll only as often as needed (Cloudflare's free plan counts every API request):
+     * every 8 s while a bus is live, 15 s during trip hours, 60 s otherwise; never while the app is hidden.
+     */
+    start() {
+      if (this.running) return; this.running = true;
+      const loop = async () => { await this.poll(); this.timer = setTimeout(loop, this._delay()); };
+      loop();
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) { clearTimeout(this.timer); loop(); } });
+    },
+    _delay() {
+      let live = false; this.state.forEach(st => { if (st.fix && this._age(st) < 90) live = true; });
+      if (live) return POLL_MS;
+      const m = this.now().min, soon = [...this.state.values()].some(st => [st.schedule?.departStart, st.schedule?.departCampus].some(t => { const d = hm(t); return d != null && m >= d - 30 && m < d; }));
+      return this.legNow() || soon ? 15000 : 60000;
     },
 
-    start(token) { this.token = token; this.poll(); clearInterval(this.timer); this.timer = setInterval(() => this.poll(), POLL_MS); },
-    stop() { clearInterval(this.timer); this.token = null; this.state.forEach(s => { s.fix = null; s.disp = null; }); },
-
     async poll() {
-      if (!this.token || document.hidden) return;
+      if (document.hidden) return;
       try {
-        const res = await fetch('api/buses', { headers: { Authorization: 'Bearer ' + this.token }, cache: 'no-store' });
-        if (res.status === 401) { this.stop(); return this.onAuthFail(); }
+        const res = await fetch('api/buses', { cache: 'no-store' });
         const j = await res.json();
         this.offset = j.now - Date.now();
-        if (j.rev !== this.rev) await this.load(this.token); // admin changed routes/buses
+        if (j.rev !== this.rev) await this.load(); // admin changed routes/buses
         j.buses.forEach(f => this.ingest(f));
+        this.trips = new Map((j.trips || []).map(t => [t.bus + ':' + t.leg, t]));
+        this.riders = j.riders || {};
         if (!this.ok) { this.ok = true; this.onStatus(true); }
-      } catch (e) { if (e.auth) { this.stop(); return this.onAuthFail(); } if (this.ok) { this.ok = false; this.onStatus(false); } }
+        this.onPoll(this);
+      } catch (e) { if (this.ok) { this.ok = false; this.onStatus(false); } }
     },
 
     ingest(f) {
@@ -172,13 +214,25 @@
       if (st.estAt && now - st.estAt < 1000) return st.est;
       st.estAt = now; st.est = null;
       const r = st.r, sc = st.schedule;
+      // Live signal lost mid-trip (the rider stopped sharing or went offline before the end):
+      // keep the bus moving from its last live position at its usual speed instead of jumping to the timetable.
+      // Never claims arrival: it stops short of the end of the route, and gives up after 20 minutes.
+      const f = st.fix, lost = f ? this._age(st) : Infinity;
+      if (r && f && f.off < 80 && lost > OFFLINE_S && lost < 20 * 60 && this.trip(st.id, st.dir > 0 ? 'am' : 'pm')?.state === 'live') {
+        const v = Math.max(15 / 3.6, Math.min(30 / 3.6, st.ema)) * 0.85, end = st.dir > 0 ? r.length - 200 : 200;
+        let s = f.s + st.dir * v * lost; s = st.dir > 0 ? Math.min(s, end) : Math.max(s, end);
+        const p = pointAt(r, s);
+        st.est = { s, dir: st.dir, v, lng: p.lng, lat: p.lat, heading: st.dir > 0 ? p.bearing : (p.bearing + 180) % 360, depart: null, byLast: true, lostMin: Math.round(lost / 60) };
+        return st.est;
+      }
       if (!r || !sc) return null;
-      const t = dhaka(now + this.offset), days = parseDays(sc.days);
-      if (days && !days.has(t.day)) return null;
+      const t = dhaka(now + this.offset);
+      if (!this.busRuns(sc)) return null; // university closed, or not this bus's day
+      const done = leg => this.trip(st.id, leg)?.state === 'arrived'; // the bus already reached the end of this trip today
       const tripMin = (r.length / 1000) / EST_KMH * 60 + Math.max(0, r.stops.length - 2) * STOP_MIN;
       // Inbound trip with pick-up times on the stops: follow the real timetable stop by stop.
       const timed = r.stops.filter(x => hm(x.time) != null);
-      if (timed.length >= 2) {
+      if (timed.length >= 2 && !done('am')) {
         const first = hm(timed[0].time), last = timed[timed.length - 1];
         const lastT = hm(last.time), endT = lastT + ((r.length - last.s) / 1000) / EST_KMH * 60; // after the last timed stop: average speed
         if (t.min >= first && t.min <= endT) {
@@ -194,7 +248,7 @@
         }
       }
       for (const [dep, dir] of [[hm(sc.departStart), 1], [hm(sc.departCampus), -1]]) {
-        if (dep == null) continue;
+        if (dep == null || done(dir > 0 ? 'am' : 'pm')) continue;
         const el = t.min - dep;
         if (el < 0 || el > tripMin) continue;
         const along = r.length * (el / tripMin), sPos = dir > 0 ? along : r.length - along;
@@ -227,7 +281,7 @@
       const travel = dir > 0 ? r.stops : r.stops.slice().reverse();
       const from = travel[0].name, to = travel[travel.length - 1].name;
       const base = { id: st.id, routeId: r.id, routeName: r.name, color: r.color, status: est ? 'estimated' : status, from, to,
-        toCampus: dir > 0, inbound: dir > 0, estimated: !!est, estDepart: est ? est.depart : null, estByStops: !!(est && est.byStops), speedKmh: 0, progress: 0, nextStop: null, destEta: 0, destEtaText: '—',
+        toCampus: dir > 0, inbound: dir > 0, estimated: !!est, estDepart: est ? est.depart : null, estByStops: !!(est && est.byStops), estByLast: !!(est && est.byLast), lostMin: est ? est.lostMin : null, speedKmh: 0, progress: 0, nextStop: null, destEta: 0, destEtaText: '—',
         nextEtaText: '—', atStop: null, lastUpdateSec: null,
         stops: travel.map(s => ({ name: s.name, state: 'upcoming', etaMin: 0, time: s.time || null })) };
       if (!f && !est) return { ...base, noData: true };
@@ -251,7 +305,7 @@
         destEtaText: status === 'offline' && !est ? '—' : approx + fmtMin(destEta),
         nextEtaText: nextStop ? approx + fmtMin(nextStop.etaMin) : '—',
         atStop: here ? here.name : null, lastUpdateSec: f ? Math.round(age) : null,
-        lng: est ? est.lng : f.lng, lat: est ? est.lat : f.lat, source: est ? 'schedule' : (f.source || 'device') };
+        lng: est ? est.lng : f.lng, lat: est ? est.lat : f.lat, source: est ? (est.byLast ? 'lost' : 'schedule') : (f.source || 'device') };
     },
   };
   window.Feed = Feed;

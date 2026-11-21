@@ -9,62 +9,95 @@
 //   6. with several sharers, the one verified first wins; a newcomer far from it is ignored (AGREE_M)
 //   7. the official bus phone always has priority while it is live (DEVICE_FRESH_MS)
 // Students' identities are never shown to other students; admins can see and block sharers.
-import { db, studentFrom, num, ensureSchema, getSetting } from './_lib.js';
-import { prepRoute, project, metres } from './_geo.js';
+import { db, userFrom, num, ensureSchema, getSetting } from './_lib.js';
+import { project, metres } from './_geo.js';
+import { routeFor, windows, legAt, bdNow, tripOf, tripTick, credit, windowText, END_M, calendar, busRuns, boostToday } from './_social.js';
+import { hit } from './_ratelimit.js';
+import { SITE } from './_config.js';
 
 const MAX_ACC = 60, ON_ROUTE = 80, MIN_PROGRESS = 400, MIN_WINDOW = 90e3, // ~9 fixes at one every 10 s
       MIN_KMH = 8, MAX_KMH = 120;
 const WINDOW = 4 * 60e3, STALL_MS = 6 * 60e3, STALL_M = 60, AGREE_M = 500, PEER_FRESH = 20e3, DEVICE_FRESH_MS = 45e3;
-const MIN_GAP = 2500, END_M = 150;
+const MIN_GAP = 2500, FULL_RIDE_S = 600;
+// At most SLOTS riders share one bus at a time. A slot is held while the rider keeps sending (SLOT_FRESH);
+// riders still being checked hold it for CHECK_HOLD at most, so someone "sharing" from home cannot block real riders.
+const SLOTS = 3, SLOT_FRESH = 30e3, CHECK_HOLD = 5 * 60e3;
 
 const MSG = {
   checking: 'Checking: keep sharing while the bus moves along the route.',
   verified: 'Verified: your location is helping others see this bus.',
-  backup: 'Verified. The bus phone is live, so yours is on standby as a backup.',
+  backup: 'Verified. The bus phone is live, so yours is on standby as a backup (half XP).',
   disagree: 'Another verified rider is already sharing this bus; your location does not match theirs, so it is not used.',
   paused: 'Paused: you have not moved for a while. Sharing resumes when the bus moves.',
   off_route: 'You are not on this bus route, so your location cannot be used.',
   weak_gps: 'GPS signal is too weak right now. Move near a window.',
   jump: 'Your location jumped impossibly far, so it was ignored.',
+  wrong_way: 'This trip goes the other way, so your location cannot be used.',
   arrived: 'The bus reached the end of the route. Sharing stopped. Thank you!',
+  full: `${SLOTS} riders are already sharing this bus. Keep the app open: you get the next free slot automatically.`,
 };
-
-let routeCache = { rev: null, map: new Map() };
-async function routeFor(busId) {
-  const r = await db().execute({ sql: `SELECT b.id AS bus, r.id, r.geometry FROM buses b JOIN routes r ON r.id = b.route_id WHERE b.id = ?`, args: [busId] });
-  const row = r.rows[0]; if (!row) return null;
-  let cached = routeCache.map.get(row.id);
-  if (!cached || cached.raw !== row.geometry) { cached = { raw: row.geometry, ...prepRoute(JSON.parse(row.geometry)) }; routeCache.map.set(row.id, cached); }
-  return cached;
-}
+const hm = ms => new Date(ms + SITE.utcOffsetHours * 3600e3).toISOString().slice(11, 16).replace(/^(\d\d):(\d\d)$/, (_, h, m) => `${(+h % 12) || 12}:${m} ${+h < 12 ? 'AM' : 'PM'}`);
 
 async function stop(sid) {
   await db().batch([{ sql: 'DELETE FROM share_sessions WHERE student_id = ?', args: [sid] }, { sql: 'DELETE FROM share_fixes WHERE student_id = ?', args: [sid] }], 'write');
 }
 
 export default async function handler(req, res) {
-  const me = studentFrom(req);
-  if (!me) return res.status(401).json({ error: 'Please sign in.' });
+  const me = userFrom(req);
+  if (!me) return res.status(401).json({ error: 'Pick a username first to share location.' });
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   await ensureSchema();
-  const sid = me.sub.slice(2), body = req.body || {};
+  const sid = me.id, body = req.body || {};
   const reply = (status, extra = {}) => res.status(200).json({ status, message: MSG[status], ...extra });
 
   if (body.action === 'stop') { await stop(sid); return res.status(200).json({ status: 'stopped' }); }
 
   if ((await getSetting('crowd_enabled', '1')) !== '1') return res.status(403).json({ error: 'Location sharing by students is turned off by the admin.' });
-  if ((await db().execute({ sql: 'SELECT 1 FROM share_blocks WHERE student_id = ?', args: [sid] })).rows[0])
-    return res.status(403).json({ error: 'Location sharing is not available for your account. Contact the transport office.' });
+  const acct = (await db().execute({ sql: 'SELECT u.id, (SELECT 1 FROM share_blocks b WHERE b.student_id = u.id) AS blocked FROM users u WHERE u.id = ?', args: [sid] })).rows[0];
+  if (!acct) return res.status(401).json({ error: 'Your account was not found. Pick a username again.' });
+  if (acct.blocked) return res.status(403).json({ error: 'Location sharing is not available for your account. Contact the transport office.' });
+  // Only during trip times: morning until the bus reaches campus, evening until it reaches the end of its route.
+  const win = await windows(), bt = bdNow(), leg = legAt(win, bt.min);
+  if (!leg) { await stop(sid); return res.status(403).json({ error: 'Sharing is closed right now. ' + windowText(win), closed: true }); }
+
+  // Seat report from a verified rider of this bus: "plenty" / "few" / "full" (+2 XP, up to 3 per trip)
+  if (body.action === 'seats') {
+    const level = ['plenty', 'few', 'full'].includes(body.level) ? body.level : null;
+    const ses = (await db().execute({ sql: 'SELECT bus_id, status, last_ts, last_s FROM share_sessions WHERE student_id = ?', args: [sid] })).rows[0];
+    if (!level || !ses || !['verified', 'backup'].includes(ses.status) || Date.now() - ses.last_ts > 60e3)
+      return res.status(403).json({ error: 'Seat reports come from verified riders who are sharing this bus.' });
+    const now = Date.now();
+    // the report is valid until the bus reaches its next stop (people get on and off there); the app checks this
+    await db().execute({ sql: 'UPDATE trips SET seats = ?, seats_at = ?, seats_s = ? WHERE bus_id = ? AND day = ? AND leg = ?', args: [level, now, ses.last_s ?? null, ses.bus_id, bt.day, leg] });
+    if (await hit(`seat:${sid}:${bt.day}:${leg}`, 1, 5 * 60e3)) // XP at most once per 5 minutes
+      await db().execute({ sql: 'UPDATE contrib SET seat_reports = seat_reports + 1 WHERE user_id = ? AND bus_id = ? AND day = ? AND leg = ?', args: [sid, ses.bus_id, bt.day, leg] });
+    return res.status(200).json({ ok: true, seats: level });
+  }
 
   const busId = String(body.busId || ''), lat = num(body.lat, -90, 90), lng = num(body.lng, -180, 180), acc = num(body.acc, 0, 100000);
   if (!busId || lat === null || lng === null) return res.status(400).json({ error: 'Bad request' });
   const route = await routeFor(busId);
   if (!route) return res.status(404).json({ error: 'This bus has no route yet.' });
+  // University calendar: Sat–Wed by default, plus special open days (exams, programs); holidays closed.
+  const busDays = (await db().execute({ sql: 'SELECT days FROM buses WHERE id = ?', args: [busId] })).rows[0]?.days;
+  const cal = await calendar();
+  if (!busRuns(cal, bt.day, busDays)) { await stop(sid); return res.status(403).json({ error: `Bus ${busId} does not run today${cal.special[bt.day]?.note ? ` (${cal.special[bt.day].note})` : ''}.`, closed: true }); }
+  const trip0 = await tripOf(busId, bt.day, leg);
+  if (trip0 && trip0.state === 'arrived') {
+    await stop(sid);
+    return res.status(403).json({ error: `Bus ${busId} already ${leg === 'am' ? 'reached campus' : 'reached the end of its route'} at ${hm(trip0.arrived_at)}. Thanks anyway!`, closed: true });
+  }
 
   const now = Date.now();
   let ses = (await db().execute({ sql: 'SELECT * FROM share_sessions WHERE student_id = ?', args: [sid] })).rows[0];
   if (ses && ses.bus_id !== busId) { await stop(sid); ses = null; }          // switched bus: start over
   if (ses && now - ses.last_ts < MIN_GAP) return reply(ses.status);         // too frequent: ignore quietly
+  // Slots: a rider who is not currently holding one may start only if fewer than SLOTS others are sharing this bus.
+  if (!(ses && now - ses.last_ts < SLOT_FRESH)) {
+    const n = Number((await db().execute({ sql: `SELECT COUNT(*) AS n FROM share_sessions WHERE bus_id = ? AND student_id <> ? AND last_ts > ?
+        AND (status IN ('verified','backup') OR (status IN ('checking','weak_gps') AND started_at > ?))`, args: [busId, sid, now - SLOT_FRESH, now - CHECK_HOLD] })).rows[0].n);
+    if (n >= SLOTS) { if (ses) await stop(sid); return reply('full', { sharing: n, slots: SLOTS }); }
+  }
   if (!ses) {
     await db().execute({ sql: 'INSERT INTO share_sessions (student_id, bus_id, status, started_at, last_ts) VALUES (?,?,?,?,?)', args: [sid, busId, 'checking', now, now] });
     ses = { student_id: sid, bus_id: busId, status: 'checking', started_at: now, verified_at: null, last_ts: now, jumps: 0 };
@@ -112,12 +145,28 @@ export default async function handler(req, res) {
   if (span >= STALL_MS - 30e3 && recent.length > 1 && Math.abs(recent[recent.length - 1].s - recent[0].s) < STALL_M) {
     await save('paused', { last_s: p.s, verified_at: verifiedAt }); return reply('paused');
   }
+  // The trip direction must match the time of day: to campus in the morning, away from campus in the evening.
+  if ((leg === 'am' && dir < 0) || (leg === 'pm' && dir > 0)) { await save('wrong_way', { last_s: p.s, verified_at: verifiedAt }); return reply('wrong_way'); }
+
+  // Contribution: metres moved along the route since the last fix (in the travel direction, at a possible speed).
+  const dt = Math.min(30, Math.max(0, (now - ses.last_ts) / 1000));
+  const gain = ses.last_s == null ? 0 : Math.max(0, Math.min(dir * (p.s - ses.last_s), (MAX_KMH / 3.6) * dt));
+  const earn = async (status, end) => {
+    const trip = await tripTick(busId, leg, bt.day, p.s, route.length, now, status === 'verified' ? sid : null);
+    const half = status === 'backup' ? 0.5 : 1;
+    const c = await credit({ userId: sid, routeId: route.id, busId, day: bt.day, leg, metres: gain * half, secs: dt, first: trip.first_user === sid, full: false, now, mult: await boostToday() });
+    if (end && Number(c.secs) >= FULL_RIDE_S) Object.assign(c, await credit({ userId: sid, routeId: route.id, busId, day: bt.day, leg, metres: 0, secs: 0, first: false, full: true, now }));
+    return { xp: Number(c.xp) || 0, thanks: Number(trip.thanks) || 0, tripState: trip.state };
+  };
+
   // arrived at the end of the route in the travel direction
-  if ((dir > 0 && p.s >= route.length - END_M) || (dir < 0 && p.s <= END_M)) { await stop(sid); return reply('arrived'); }
+  if ((dir > 0 && p.s >= route.length - END_M) || (dir < 0 && p.s <= END_M)) { const e = await earn('verified', true); await stop(sid); return reply('arrived', e); }
 
   // 7. the official bus phone has priority
   const pos = (await db().execute({ sql: 'SELECT ts, source, lat, lng FROM positions WHERE bus_id = ?', args: [busId] })).rows[0];
-  if (pos && pos.source === 'device' && now - pos.ts < DEVICE_FRESH_MS) { await save('backup', { last_s: p.s, verified_at: verifiedAt }); return reply('backup'); }
+  if (pos && pos.source === 'device' && now - pos.ts < DEVICE_FRESH_MS) {
+    await save('backup', { last_s: p.s, verified_at: verifiedAt }); return reply('backup', await earn('backup'));
+  }
 
   // 6. other verified sharers on the same bus: the one verified first wins
   const peers = (await db().execute({ sql: `SELECT student_id, verified_at, last_lat, last_lng FROM share_sessions
@@ -130,5 +179,5 @@ export default async function handler(req, res) {
       ON CONFLICT(bus_id) DO UPDATE SET lat=excluded.lat, lng=excluded.lng, speed=excluded.speed, heading=excluded.heading, acc=excluded.acc, ts=excluded.ts, source='crowd'`,
     args: [busId, lat, lng, speed ?? (kmh / 3.6), heading, acc, now] });
   await save('verified', { last_s: p.s, verified_at: verifiedAt });
-  return reply('verified');
+  return reply('verified', await earn('verified'));
 }

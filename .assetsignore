@@ -21,3 +21,6 @@ local.db-*
 .env*
 .dev.vars
 .bus-tokens.json
+docs
+CONTRIBUTING.md
+CITATION.cff

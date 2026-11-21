@@ -7,6 +7,12 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 PRODUCTION = "1"
 # Secrets (set with `wrangler secret put`): TURSO_DATABASE_URL, TURSO_AUTH_TOKEN, SESSION_SECRET
+# Optional bot check on new usernames: TURNSTILE_SITEKEY (var) + TURNSTILE_SECRET (secret)
+
+# Every minute: push notifications (departure reminders 20 min before, weekly champion / treat report, outbox).
+# 1,440 runs a day: at most ~1.5% of the free plan's 100,000 requests/day; each run stays under the 50 sub-request limit.
+[triggers]
+crons = ["* * * * *"]
 
 [assets]
 directory = "."

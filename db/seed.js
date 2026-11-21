@@ -6,6 +6,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { db, hashPassword, sha256, buildGeometry, bumpRev, ensureSchema } from '../api/_lib.js';
+import { PEPSI_GATE } from '../api/_fixes.js';
 
 const c = db();
 await ensureSchema();
@@ -33,9 +34,11 @@ if (args.includes('--admin')) {
 // ---- starter data: the Rajendrapur route / Bus 11 (stops are added later from the admin dashboard) ----
 const hasRoute = (await c.execute(`SELECT id FROM routes WHERE id='rajendrapur'`)).rows[0];
 if (!hasRoute) {
-  const stops = [{ name: 'Rajendrapur Chowrastha', lat: 24.09537, lng: 90.40187 }];
+  // The bus starts at Pepsi Gate, Rajendrapur Bazar and joins the highway at Rajendrapur Chowrastha. Add the other stops in the admin dashboard.
+  const stops = [PEPSI_GATE, { name: 'Rajendrapur Chowrastha', lat: 24.09537, lng: 90.40187 }];
   const g = await buildGeometry(stops);
   await c.execute({ sql: 'INSERT INTO routes (id,name,color,stops,geometry,updated_at) VALUES (?,?,?,?,?,?)', args: ['rajendrapur', 'Rajendrapur', '#0b6e1c', JSON.stringify(stops), JSON.stringify(g.geometry), Date.now()] });
+  await c.execute(`INSERT INTO settings (key,value) VALUES ('fix_rajendrapur_start','1') ON CONFLICT DO NOTHING`); // already correct
   console.log(`Route "Rajendrapur" created (${g.snapped ? 'road-snapped' : 'straight-line fallback'})`);
 }
 if (!(await c.execute(`SELECT id FROM buses WHERE id='11'`)).rows[0]) {
