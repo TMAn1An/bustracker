@@ -19,6 +19,9 @@ const MAX_ACC = 60, ON_ROUTE = 80, MIN_PROGRESS = 400, MIN_WINDOW = 90e3, // ~9 
       MIN_KMH = 8, MAX_KMH = 120;
 const WINDOW = 4 * 60e3, STALL_MS = 6 * 60e3, STALL_M = 60, AGREE_M = 500, PEER_FRESH = 20e3, DEVICE_FRESH_MS = 45e3;
 const MIN_GAP = 2500, FULL_RIDE_S = 600;
+// At most SLOTS riders share one bus at a time. A slot is held while the rider keeps sending (SLOT_FRESH);
+// riders still being checked hold it for CHECK_HOLD at most, so someone "sharing" from home cannot block real riders.
+const SLOTS = 3, SLOT_FRESH = 30e3, CHECK_HOLD = 5 * 60e3;
 
 const MSG = {
   checking: 'Checking: keep sharing while the bus moves along the route.',
@@ -31,6 +34,7 @@ const MSG = {
   jump: 'Your location jumped impossibly far, so it was ignored.',
   wrong_way: 'This trip goes the other way, so your location cannot be used.',
   arrived: 'The bus reached the end of the route. Sharing stopped. Thank you!',
+  full: `${SLOTS} riders are already sharing this bus. Keep the app open: you get the next free slot automatically.`,
 };
 const hm = ms => new Date(ms + SITE.utcOffsetHours * 3600e3).toISOString().slice(11, 16).replace(/^(\d\d):(\d\d)$/, (_, h, m) => `${(+h % 12) || 12}:${m} ${+h < 12 ? 'AM' : 'PM'}`);
 
@@ -87,6 +91,12 @@ export default async function handler(req, res) {
   let ses = (await db().execute({ sql: 'SELECT * FROM share_sessions WHERE student_id = ?', args: [sid] })).rows[0];
   if (ses && ses.bus_id !== busId) { await stop(sid); ses = null; }          // switched bus: start over
   if (ses && now - ses.last_ts < MIN_GAP) return reply(ses.status);         // too frequent: ignore quietly
+  // Slots: a rider who is not currently holding one may start only if fewer than SLOTS others are sharing this bus.
+  if (!(ses && now - ses.last_ts < SLOT_FRESH)) {
+    const n = Number((await db().execute({ sql: `SELECT COUNT(*) AS n FROM share_sessions WHERE bus_id = ? AND student_id <> ? AND last_ts > ?
+        AND (status IN ('verified','backup') OR (status IN ('checking','weak_gps') AND started_at > ?))`, args: [busId, sid, now - SLOT_FRESH, now - CHECK_HOLD] })).rows[0].n);
+    if (n >= SLOTS) { if (ses) await stop(sid); return reply('full', { sharing: n, slots: SLOTS }); }
+  }
   if (!ses) {
     await db().execute({ sql: 'INSERT INTO share_sessions (student_id, bus_id, status, started_at, last_ts) VALUES (?,?,?,?,?)', args: [sid, busId, 'checking', now, now] });
     ses = { student_id: sid, bus_id: busId, status: 'checking', started_at: now, verified_at: null, last_ts: now, jumps: 0 };

@@ -104,7 +104,7 @@ so the app does not depend on third-party CDNs (only map tiles and fonts are ext
 | `/` | Open app: routes, my-route countdown, bus detail, 3D map, leaderboard, profiles |
 | `/admin/` | Admin dashboard: **Buses** (number, route, departure times, tracker token), **Routes** (stops on a map, saved snapped to roads), **Notices** (broadcast to all apps, optional expiry) |
 | `/privacy.html` | What the app does with sign-in and location data |
-| `/tracker/` | Lightweight page for the bus phone (geolocation + wake lock). Or use the **Traccar Client** app: Server URL `https://<site>/api/osmand`, device identifier = bus token |
+| `/tracker/` | **Bus phone** (a dedicated phone that stays on the bus, not the driver's own phone): sends GPS every 10 s with the bus's token; this official signal has priority over riders. Or use the **Traccar Client** app: Server URL `https://<site>/api/osmand`, device identifier = bus token. *Built and tested; not launched yet.* |
 
 ## Admin: how to set up a bus
 1. **Routes → New route** (or pick a route): add stops *in driving order from the far end*; the route always ends at IUBAT Campus.
@@ -132,6 +132,9 @@ Every fix is checked on the server (`api/share.js`) before anyone else sees it:
 - impossible jumps (over 120 km/h between fixes) are ignored; sitting still for 6 min (e.g. got off the bus) pauses the share;
 - with several riders, the one verified first wins and a newcomer more than 500 m away from it is ignored;
 - the official bus phone always has priority, and riders become a standby backup;
+- **at most 3 riders share one bus at a time**: a 4th rider sees "3 riders are already sharing" and waits; when someone stops or goes offline
+  (no update for 30 s) the next waiting rider gets the slot automatically. Riders still being checked hold a slot for at most 5 minutes,
+  so someone "sharing" from home cannot block real riders (`node scripts/test-slots.js` tests this locally);
 - other students never see who is sharing; the admin **Sharing** tab shows sharers and can block them or switch the mode off.
 Limitation: a fake-GPS app that imitates a moving bus along the route cannot be fully detected from a web app; the rules above, first-verified-wins and admin blocking limit the damage.
 Test locally: `npm run dev`, then `node scripts/simulate-crowd.js` (five simulated riders: honest, at home, off route, jumping, conflicting; prints XP and the leaderboard).

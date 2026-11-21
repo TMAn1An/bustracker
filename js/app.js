@@ -410,14 +410,14 @@
     dlg.onclose = () => { if (dlg.returnValue === 'yes') Share.start(busId, S.token); };
     dlg.showModal();
   }
-  const SH_CLASS = { verified: 'ok', backup: 'ok', checking: 'wait', starting: 'wait', weak_gps: 'wait', paused: 'wait', off_route: 'bad', jump: 'bad', disagree: 'bad', wrong_way: 'bad' };
+  const SH_CLASS = { verified: 'ok', backup: 'ok', checking: 'wait', starting: 'wait', weak_gps: 'wait', paused: 'wait', full: 'wait', off_route: 'bad', jump: 'bad', disagree: 'bad', wrong_way: 'bad' };
   function shareBar() {
     if (!Share.active && !Share.message) return '';
     if (!Share.active) return `<div class="sharebar ${Share.error ? 'bad' : 'ok'}"><p>${esc(Share.message)}</p></div>`;
     const cls = SH_CLASS[Share.status] || 'wait';
     const fun = Share.xp || Share.thanks ? `<span class="sb-fun">${Share.xp ? `⚡ ${Share.xp} XP this ride` : ''}${Share.thanks ? ` · 🙏 ${Share.thanks} thanks` : ''}</span>` : '';
     const seatsUi = cls === 'ok' ? `<div class="seatq"><span>Seats now?</span>${SEATS.map(([k, e, l]) => `<button data-seats="${k}" class="${seatsOf(Share.busId)?.level === k ? 'on' : ''}">${e} ${l}</button>`).join('')}</div>` : '';
-    return `<div class="sharebar ${cls}"><div><b>Sharing for Bus ${esc(Share.busId)}</b><p>${esc(Share.message)}</p>${fun}${seatsUi}</div>
+    return `<div class="sharebar ${cls}"><div><b>${Share.status === 'full' ? `Waiting for a slot · Bus ${esc(Share.busId)}` : `Sharing for Bus ${esc(Share.busId)}`}</b><p>${esc(Share.message)}</p>${fun}${seatsUi}</div>
       <span class="sb-act">${view.name !== 'route' || view.busId !== Share.busId ? '<button class="link" data-gosh>View</button>' : ''}<button class="btn-stop" data-unshare>Stop</button></span></div>`;
   }
   /* ---------- seats ---------- */
@@ -445,6 +445,7 @@
     const tr = Feed.trip(b.id, leg);
     if (tr?.state === 'arrived') return `<div class="sharecta off"><p>✅ This trip is done (${leg === 'am' ? 'reached campus' : 'reached the end of the route'} at ${clock(tr.arrivedAt)}). Sharing opens again ${leg === 'am' ? `at ${m12(w.pm[0])}` : 'tomorrow morning'}.</p></div>`;
     const riders = Feed.riders[b.id] || 0;
+    if (riders >= 3) return `<div class="sharecta"><div><b>3 riders are sharing Bus ${esc(b.id)} 🙌</b><p>That's the limit for one bus. On it too? Wait for a slot: you start automatically when one frees up.</p></div><button class="btn ghost-b sm" data-share="${esc(b.id)}">Wait for a slot</button></div>`;
     return `<div class="sharecta"><div><b>On this bus? Be the hero 🦸</b><p>${riders ? `${riders} rider${riders > 1 ? 's are' : ' is'} sharing. Join as backup and earn XP.` : `Share your location so everyone can see where Bus ${esc(b.id)} is${b.status === 'offline' || b.status === 'estimated' ? ' (no live signal right now)' : ''}. Earn XP!`}</p></div><button class="btn primary sm" data-share="${esc(b.id)}">Share location</button></div>`;
   }
   function thankBtn(b) {
