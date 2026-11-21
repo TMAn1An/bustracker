@@ -5,8 +5,8 @@
 // Remove dummy student: node db/seed.js --remove-dummy
 import { readFileSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
-import { db, hashPassword, sha256, buildGeometry, bumpRev, ensureSchema } from '../api/_lib.js';
-import { PEPSI_GATE } from '../api/_fixes.js';
+import { db, hashPassword, sha256, buildGeometry, bumpRev, ensureSchema } from '../server/_lib.js';
+import { PEPSI_GATE } from '../server/_fixes.js';
 
 const c = db();
 await ensureSchema();

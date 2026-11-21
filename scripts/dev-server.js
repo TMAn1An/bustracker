@@ -11,8 +11,10 @@ http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   try {
     if (url.pathname.startsWith('/api/')) {
-      const name = url.pathname.slice(5).replace(/[^a-z0-9_-]/gi, '');
-      if (name.startsWith('_')) { res.statusCode = 404; return res.end(); }
+      const name = url.pathname.slice(5).replace(/\/+$/, '');
+      const { API } = await import(pathToFileURL(join(ROOT, 'server', 'index.js')));
+      const handler = API[name];
+      if (!handler) { res.statusCode = 404; return res.end('not found'); }
       const chunks = []; for await (const c of req) chunks.push(c);
       const raw = Buffer.concat(chunks).toString();
       try { req.body = raw && (req.headers['content-type'] || '').includes('json') ? JSON.parse(raw) : undefined; } catch { req.body = undefined; }
@@ -21,12 +23,11 @@ http.createServer(async (req, res) => {
       res.status = c => { res.statusCode = c; return res; };
       res.json = o => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(o)); };
       res.send = s => res.end(s);
-      const mod = await import(pathToFileURL(join(ROOT, 'api', name + '.js')) + '?t=' + Date.now());
-      return await mod.default(req, res);
+      return await handler(req, res);
     }
     let p = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '');
     if (p.endsWith('/')) p += 'index.html';
-    if (/^[/\\](\.|node_modules|db|scripts|api)/.test(p) || p.endsWith('.db')) { res.statusCode = 404; return res.end('not found'); }
+    if (/^[/\\](\.|node_modules|db|scripts|api|server)/.test(p) || p.endsWith('.db')) { res.statusCode = 404; return res.end('not found'); }
     const buf = await readFile(join(ROOT, p));
     res.setHeader('Content-Type', MIME[extname(p)] || 'application/octet-stream');
     res.end(buf);
@@ -39,6 +40,6 @@ http.createServer(async (req, res) => {
 
 // Same as the Cloudflare Cron Trigger: push reminders and outbox, once a minute (NO_CRON=1 to switch off).
 if (!process.env.NO_CRON) setInterval(async () => {
-  try { const { tick } = await import('../api/_push.js'); const { ensureSchema } = await import('../api/_lib.js'); await ensureSchema(); await tick(); }
+  try { const { tick } = await import('../server/_push.js'); const { ensureSchema } = await import('../server/_lib.js'); await ensureSchema(); await tick(); }
   catch (e) { console.error('cron', e.message); }
 }, 60e3);
