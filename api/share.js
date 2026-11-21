@@ -13,6 +13,7 @@ import { db, userFrom, num, ensureSchema, getSetting } from './_lib.js';
 import { project, metres } from './_geo.js';
 import { routeFor, windows, legAt, bdNow, tripOf, tripTick, credit, windowText, END_M, calendar, busRuns, boostToday } from './_social.js';
 import { hit } from './_ratelimit.js';
+import { SITE } from './_config.js';
 
 const MAX_ACC = 60, ON_ROUTE = 80, MIN_PROGRESS = 400, MIN_WINDOW = 90e3, // ~9 fixes at one every 10 s
       MIN_KMH = 8, MAX_KMH = 120;
@@ -31,7 +32,7 @@ const MSG = {
   wrong_way: 'This trip goes the other way, so your location cannot be used.',
   arrived: 'The bus reached the end of the route. Sharing stopped. Thank you!',
 };
-const hm = ms => new Date(ms + 6 * 3600e3).toISOString().slice(11, 16).replace(/^(\d\d):(\d\d)$/, (_, h, m) => `${(+h % 12) || 12}:${m} ${+h < 12 ? 'AM' : 'PM'}`);
+const hm = ms => new Date(ms + SITE.utcOffsetHours * 3600e3).toISOString().slice(11, 16).replace(/^(\d\d):(\d\d)$/, (_, h, m) => `${(+h % 12) || 12}:${m} ${+h < 12 ? 'AM' : 'PM'}`);
 
 async function stop(sid) {
   await db().batch([{ sql: 'DELETE FROM share_sessions WHERE student_id = ?', args: [sid] }, { sql: 'DELETE FROM share_fixes WHERE student_id = ?', args: [sid] }], 'write');

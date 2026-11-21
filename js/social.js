@@ -66,7 +66,7 @@
   }
   /** GitHub-style contribution graph: weeks as columns (Saturday at the top), darker = more XP that day. */
   function heatmap(heat, from) {
-    const days = [], start = new Date(from + 'T00:00:00Z'), today = new Date(Date.now() + 6 * 3600e3).toISOString().slice(0, 10);
+    const days = [], start = new Date(from + 'T00:00:00Z'), today = new Date(Date.now() + (window.Feed ? Feed.tz : 6) * 3600e3).toISOString().slice(0, 10);
     for (let d = new Date(start); d.toISOString().slice(0, 10) <= today; d.setUTCDate(d.getUTCDate() + 1)) days.push(d.toISOString().slice(0, 10));
     const max = Math.max(1, ...Object.values(heat || {}));
     const lvl = p => (!p ? 0 : p >= max * 0.75 ? 4 : p >= max * 0.5 ? 3 : p >= max * 0.25 ? 2 : 1);

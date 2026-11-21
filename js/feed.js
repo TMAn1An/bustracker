@@ -30,7 +30,8 @@
     return out;
   }
   /** Bangladesh time (UTC+6, no daylight saving): weekday and minutes since midnight */
-  function dhaka(ms) { const d = new Date(ms + 6 * 3600e3); return { day: d.getUTCDay(), min: d.getUTCHours() * 60 + d.getUTCMinutes() + d.getUTCSeconds() / 60 }; }
+  let TZ = 6; // hours from UTC, from the server config (api/_config.js)
+  function dhaka(ms) { const d = new Date(ms + TZ * 3600e3); return { day: d.getUTCDay(), min: d.getUTCHours() * 60 + d.getUTCMinutes() + d.getUTCSeconds() / 60 }; }
   const hm = v => { const m = /^(\d{1,2}):(\d{2})$/.exec(v || ''); return m ? +m[1] * 60 + +m[2] : null; };
   /** Position on the route at distance s (metres from the first stop): { lng, lat, bearing } */
   function pointAt(r, s) {
@@ -80,7 +81,8 @@
     legNow() { const m = this.now().min, w = this.windows; return m >= w.am[0] && m < w.am[1] ? 'am' : m >= w.pm[0] && m < w.pm[1] ? 'pm' : null; },
     trip(busId, leg) { return this.trips.get(busId + ':' + leg) || null; },
     /** Bangladesh date (YYYY-MM-DD), offset in days from today */
-    date(add = 0) { return new Date(Date.now() + this.offset + 6 * 3600e3 + add * 864e5).toISOString().slice(0, 10); },
+    get tz() { return TZ; },
+    date(add = 0) { return new Date(Date.now() + this.offset + TZ * 3600e3 + add * 864e5).toISOString().slice(0, 10); },
     /** University calendar: special day (exam / program / holiday) or the normal week (Sat–Wed by default) */
     special(day = this.date()) { return this.calendar.special[day] || null; },
     isOpen(day = this.date()) { const s = this.special(day); return s ? s.open : this.calendar.openDays.includes(new Date(day + 'T00:00:00Z').getUTCDay()); },
@@ -115,6 +117,7 @@
       if (j.windows) this.windows = j.windows;
       this.turnstile = j.turnstile || null;
       if (j.calendar) this.calendar = j.calendar;
+      if (j.site && Number.isFinite(j.site.tz)) TZ = j.site.tz;
       this.boost = j.boost || null;
       this.offset = j.now - Date.now();
       this.notices = (j.notices || []).map(n => ({ ...n, expiresLocal: n.expiresAt ? n.expiresAt - (j.now - Date.now()) : null }));

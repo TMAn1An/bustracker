@@ -3,10 +3,11 @@
 // last week's champions are crowned lazily by the first request of the new week.
 import { db, getSetting, setSetting } from './_lib.js';
 import { prepRoute, project } from './_geo.js';
+import { SITE } from './_config.js';
 
 /* ---------- Bangladesh time (UTC+6, no daylight saving) ---------- */
 export function bdNow(ms = Date.now()) {
-  const d = new Date(ms + 6 * 3600e3);
+  const d = new Date(ms + SITE.utcOffsetHours * 3600e3);
   return { day: d.toISOString().slice(0, 10), dow: d.getUTCDay(), min: d.getUTCHours() * 60 + d.getUTCMinutes() };
 }
 export const addDays = (day, n) => { const d = new Date(day + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };

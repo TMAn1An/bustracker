@@ -4,11 +4,12 @@
 // A Cloudflare Cron Trigger runs tick() every minute: departure reminders, weekly champion / treat report, route battle,
 // and drains the outbox (at most ~30 pushes per run: the free plan allows 50 outgoing requests per invocation).
 import { db, getSetting } from './_lib.js';
+import { SITE } from './_config.js';
 import { bdNow, calendar, busRuns, finalizeWeeks, finalizeMonth, reputation, addDays, weekStart, ROAST_DOW } from './_social.js';
 
 const subtle = globalThis.crypto.subtle;
 const b64u = b => Buffer.from(b).toString('base64url');
-const SUBJECT = () => process.env.VAPID_SUBJECT || 'https://bustracker.iubat.workers.dev';
+const SUBJECT = () => process.env.VAPID_SUBJECT || SITE.url;
 export const REMIND_MIN = 20;
 // Only real push services (stops anyone from making the server POST to arbitrary URLs).
 export const PUSH_HOST = /(^|\.)(fcm\.googleapis\.com|push\.services\.mozilla\.com|push\.apple\.com|notify\.windows\.com|push\.api\.chrome\.google\.com)$/;

@@ -13,6 +13,23 @@
   const ICON_CHEV = '<svg class="i" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>';
   const ICON_CLOCK = '<svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>';
   const REMIND_MIN = 20;
+  // Small line icons for headings and labels (emoji stay for the fun parts: badges, treats, achievements)
+  const REPO = 'https://github.com/TMAn1An/bustracker';
+  const IC = {
+    trophy: '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',
+    bell: '<path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+    chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.4A8 8 0 1 1 21 12z"/>',
+    crown: '<path d="M3 8l4 4 5-7 5 7 4-4-2 11H5z"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+    cup: '<path d="M4 8h13v5a6 6 0 0 1-12 0z"/><path d="M17 9h1.5a2.5 2.5 0 0 1 0 5H17M8 2v3M12 2v3"/>',
+    swords: '<path d="M14.5 17.5L3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2M9.5 6.5L14 2h3v3l-4.5 4.5M5 14l-2 2 3 3 2-2"/>',
+    medal: '<circle cx="12" cy="15" r="6"/><path d="M8.5 10.5L6 2h4l2 5 2-5h4l-2.5 8.5"/>',
+    git: '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="8" r="2.5"/><path d="M6 8.5v7M18 10.5c0 4-6 3-11 6"/>',
+    cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+    bolt: '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
+  };
+  const ico = n => `<svg class="i" viewBox="0 0 24 24">${IC[n]}</svg>`;
+  const rankBadge = i => `<span class="rk rk${i < 3 ? i + 1 : 'n'}">${i + 1}</span>`;
 
   // view: home | route {routeId, busId} | notices | board | me | user {userId}
   let map = null, view = { name: 'home' }, snap = [], seenNotices = new Set(local.get('iubat_seen_notices') || []), knownNotices = null;
@@ -35,6 +52,11 @@
     else openHash(location.hash);
     // a tapped push notification opens its screen (#route=…, #me, #board)
     navigator.serviceWorker?.addEventListener('message', e => { if (e.data?.type === 'open') openHash(new URL(e.data.url).hash); });
+    // links opened while the app is already open (restore link, #route=…)
+    addEventListener('hashchange', () => {
+      const k = /#restore=([\w-]+)/.exec(location.hash);
+      if (k) { history.replaceState(null, '', location.pathname); openRestore(k[1]); } else openHash(location.hash);
+    });
     P.sync(false).catch(() => {}); // keep the server's copy of my route / stop up to date
   }
   function openHash(h) {
@@ -75,7 +97,7 @@
       const x = e.target.closest('[data-dismiss]'); if (x) { markSeen([+x.dataset.dismiss]); renderNotices(); }
     });
     $('#bell').addEventListener('click', () => go(view.name === 'notices' ? { name: 'home' } : { name: 'notices' }));
-    $('#trophy').addEventListener('click', () => go(view.name === 'board' ? { name: 'home' } : { name: 'board' }));
+    $('#pnav').addEventListener('click', e => { const b = e.target.closest('[data-nav]'); if (b) { if (b.dataset.nav === 'board') boardTab = 'week'; go({ name: b.dataset.nav }); } });
     $('#meBtn').addEventListener('click', () => (S.joined ? go(view.name === 'me' ? { name: 'home' } : { name: 'me' }) : openJoin()));
     $('#handle').addEventListener('click', () => setSheet(!$('#panel').classList.contains('open')));
     setSheet(true);
@@ -117,7 +139,10 @@
     if (v.name === 'me') S.refresh();
     if (v.name === 'user') S.user(v.userId).then(() => view === v && render()).catch(e => toast(e.message));
     if (isMobile()) setSheet(true);
-    $('#trophy').classList.toggle('on', v.name === 'board'); $('#meBtn').classList.toggle('on', v.name === 'me');
+    $('#meBtn').classList.toggle('on', v.name === 'me');
+    const tab = { route: 'home', notices: 'home', notify: 'home', feedback: 'home', user: 'board', me: '' }[v.name] ?? v.name;
+    document.querySelectorAll('#pnav [data-nav]').forEach(b => b.toggleAttribute('aria-current', b.dataset.nav === tab));
+    if (v.name === 'treats') loadBoard(null, true);
     render(); $('#panelBody').scrollTop = 0;
   }
   function busesOn(routeId) { return snap.filter(b => b.routeId === routeId); }
@@ -154,9 +179,27 @@
   function render() {
     renderNotices();
     const body = $('#panelBody'), top = body.scrollTop;
-    const html = shareBar() + ({ route: routeView, notices: noticesView, board: boardView, me: meView, user: userView, notify: notifyView, feedback: feedbackView }[view.name] || homeView)();
-    if (body._html !== html) { body.innerHTML = html; body._html = html; }
+    const html = shareBar() + ({ route: routeView, notices: noticesView, board: boardView, treats: treatsView, me: meView, user: userView, notify: notifyView, feedback: feedbackView }[view.name] || homeView)();
+    if (body._html !== html) { if (body._view === view) morph(body, html); else body.innerHTML = html; body._html = html; body._view = view; }
     body.scrollTop = top;
+  }
+  /**
+   * Update the panel in place (only what changed) instead of replacing it: live views refresh every second,
+   * and replacing the buttons could swallow a tap that lands mid-refresh. Also keeps <details> open/closed as the user left them.
+   */
+  function morph(el, html) { const t = document.createElement('template'); t.innerHTML = html; patch(el, t.content); }
+  function patch(a, b) {
+    const an = [...a.childNodes], bn = [...b.childNodes];
+    bn.forEach((y, i) => {
+      const x = an[i];
+      if (!x) return a.appendChild(y);
+      if (x.nodeType !== y.nodeType || x.nodeName !== y.nodeName) return a.replaceChild(y, x);
+      if (x.nodeType !== 1) { if (x.nodeValue !== y.nodeValue) x.nodeValue = y.nodeValue; return; }
+      for (const { name } of [...x.attributes]) if (!y.hasAttribute(name) && !(name === 'open' && x.tagName === 'DETAILS')) x.removeAttribute(name);
+      for (const { name, value } of [...y.attributes]) if (x.getAttribute(name) !== value && !(name === 'open' && x.tagName === 'DETAILS')) x.setAttribute(name, value);
+      patch(x, y);
+    });
+    for (let i = an.length - 1; i >= bn.length; i--) a.removeChild(an[i]);
   }
   async function loadBoard(routeId, force) {
     try { await S.board(null, force); if (routeId) await S.board(routeId, force); if (!LIVE.has(view.name) || view.name === 'home') render(); }
@@ -174,6 +217,8 @@
     if (q('[data-unshare]')) return Share.stop();
     if (q('[data-gosh]')) return openBus(Share.busId);
     if (q('[data-board]')) { boardTab = q('[data-board]').dataset.board; return go({ name: 'board' }); }
+    if (q('[data-gotreats]')) return go({ name: 'treats' });
+    if (q('[data-treatroute]')) { document.getElementById('tb-' + q('[data-treatroute]').dataset.treatroute)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
     if (q('[data-tab]')) { boardTab = q('[data-tab]').dataset.tab; return render(); }
     if (q('[data-star]')) return setMyRoute(myRoute === q('[data-star]').dataset.star ? null : q('[data-star]').dataset.star);
     if (q('[data-remind]')) return go({ name: 'notify', from: { ...view } });
@@ -273,7 +318,7 @@
   }
   const t12 = v => { if (!v) return null; const [h, m] = v.split(':').map(Number); return `${(h % 12) || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; };
   const m12 = min => t12(`${String(Math.floor(min / 60) % 24).padStart(2, '0')}:${String(Math.round(min % 60)).padStart(2, '0')}`);
-  const clock = ms => new Date(ms).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Dhaka' });
+  const clock = ms => new Date(ms + Feed.tz * 3600e3).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'UTC' }); // campus time
   const short = n => n.replace(/^IUBAT /, '');
 
   /** What is this bus doing today? live / soon (leaves within 20 min) / next / due / done (arrived) / off */
@@ -419,53 +464,48 @@
 
   /* ================= Home ================= */
   function homeView() {
-    return myRouteCard() + dayBanner() + leadersStrip() + (myRoute ? treatBanner(myRoute) : '') + routesList() + battleMini() + achievements()
-      + `<button class="fbtn" data-feedback>💬 Send feedback to the transport office</button>`;
+    // Home stays simple: special notices first, then my bus, then all routes. Ranking and treats have their own tabs.
+    return dayBanner() + (myRoute ? treatBanner(myRoute, true) : '') + myRouteCard() + routesList()
+      + `<button class="fbtn" data-feedback>${ico('chat')}Send feedback to the transport office</button>` + footer();
+  }
+  // Open source: lets students of other universities find the project (and see who built it)
+  function footer() {
+    return `<footer class="pfoot"><a href="${REPO}" target="_blank" rel="noopener">${ico('git')}Open source · build one for your university</a>
+      <span><a href="/privacy.html">Privacy</a> · <a href="${REPO}#use-it-at-your-university" target="_blank" rel="noopener">How to fork</a></span></footer>`;
   }
   /** Special days (exam / program / holiday) today or tomorrow, and double-XP events */
   function dayBanner() {
     let html = '';
     for (const [i, label] of [[0, 'Today'], [1, 'Tomorrow']]) {
       const sp = Feed.special(Feed.date(i)); if (!sp) continue;
-      html += `<div class="daybar ${sp.open ? 'open' : 'closed'}">${sp.open ? '📚' : '🏖️'} <b>${label}:</b> ${esc(sp.note || (sp.open ? 'Special open day' : 'Holiday'))} · ${sp.open ? 'buses run' : 'no buses'}</div>`;
+      html += `<div class="daybar ${sp.open ? 'open' : 'closed'}">${ico('cal')}<span><b>${label}:</b> ${esc(sp.note || (sp.open ? 'Special open day' : 'Holiday'))} · ${sp.open ? 'buses run' : 'no buses'}</span></div>`;
     }
     const bo = Feed.boostNow(), up = !bo && Feed.boost;
-    if (bo) html += `<div class="daybar boost">🔥 <b>${esc(bo.label)}</b> · every km earns ${bo.mult}× XP until ${new Date(bo.to + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}!</div>`;
-    else if (up) html += `<div class="daybar boost soon">⚡ Coming: <b>${esc(up.label)}</b> (${up.mult}× XP) from ${new Date(up.from + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}</div>`;
+    if (bo) html += `<div class="daybar boost">${ico('bolt')}<span><b>${esc(bo.label)}</b> · every km earns ${bo.mult}× XP until ${new Date(bo.to + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}</span></div>`;
+    else if (up) html += `<div class="daybar boost soon">${ico('bolt')}<span>Coming: <b>${esc(up.label)}</b> (${up.mult}× XP) from ${new Date(up.from + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}</span></div>`;
     return html;
   }
   const monthName = m => new Date(m + '-01T00:00:00Z').toLocaleString('en', { month: 'long', timeZone: 'UTC' });
   function battleRows(list, max) {
     return list.slice(0, max).map((x, i) => { const r = Feed.routes.find(y => y.id === x.routeId); if (!r) return '';
-      return `<button class="brow2" data-route="${esc(r.id)}" style="--route:${esc(r.color)}"><span class="bn">${['🥇', '🥈', '🥉'][i] || i + 1} ${esc(r.name)}</span>
+      return `<button class="brow2" data-route="${esc(r.id)}" style="--route:${esc(r.color)}"><span class="bn">${rankBadge(i)}${esc(r.name)}</span>
         <span class="bbar"><i style="width:${x.pct}%"></i></span><b>${x.pct}%</b></button>`; }).join('');
-  }
-  function battleMini() {
-    const B = S.cachedBoard(null); if (!B?.battle?.length || Feed.routes.length < 2) return '';
-    return `<div class="battle"><div class="bt-head"><b>⚔️ Route battle · ${monthName(B.day.slice(0, 7))}</b><button class="link" data-board="battle">Details ›</button></div>${battleRows(B.battle, 3)}
-      <small>Score = bus trips this month that had a live rider sharing.</small></div>`;
   }
   function achievements() {
     const list = S.cachedBoard(null)?.recent || []; if (!list.length) return '';
-    return `<div class="section-title">🎖️ Latest achievements</div><ul class="ach">${list.slice(0, 5).map(a => { const B = S.BADGES[a.badge]; if (!B) return '';
+    return `<div class="section-title">Latest achievements</div><ul class="ach">${list.slice(0, 5).map(a => { const B = S.BADGES[a.badge]; if (!B) return '';
       return `<li><button data-user="${esc(a.user.id)}">${S.avatar(a.user, 28)}<span>${at(a.user)} unlocked <b>${B[0]} ${esc(B[1])}</b></span><em>${ago(a.at)}</em></button></li>`; }).join('')}</ul>`;
   }
   const ago = ts => { const m = Math.round((Date.now() - ts) / 60e3); return m < 60 ? `${Math.max(1, m)}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`; };
   function myRouteCard() {
     const r = myRoute && Feed.routes.find(x => x.id === myRoute);
-    if (!r) return `<label class="pickroute"><span>⭐ <b>Pick your route</b> for a reminder ${REMIND_MIN} min before your bus leaves</span>
+    if (!r) return `<label class="pickroute"><span><b>⭐ My route</b><small>Countdown and a reminder ${REMIND_MIN} min before it leaves</small></span>
       <select data-myroute aria-label="My route"><option value="">Choose…</option>${Feed.routes.map(x => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></label>`;
     const b = bestBus(busesOn(r.id)), st = tripStatus(b, r);
     return `<div class="mycard ${st.kind}" style="--route:${esc(r.color)}">
       <button class="mc-main" data-route="${esc(r.id)}"><small>⭐ My route · ${esc(r.name)}${b ? ` · Bus ${esc(b.id)}` : ''}</small>
         <strong>${esc(st.title)}</strong>${st.sub ? `<span>${esc(st.sub)}</span>` : ''}${st.kind === 'soon' ? `<i class="mc-bar" style="--p:${(1 - st.mins / REMIND_MIN) * 100}%"></i>` : ''}</button>
       <button class="mc-bell ${remind || pushOn() ? 'on' : ''}" data-remind title="Notifications">${remind || pushOn() ? '🔔' : '🔕'}</button></div>`;
-  }
-  function leadersStrip() {
-    const B = S.cachedBoard(null);
-    const card = (u, label, tab, empty) => `<button class="lcard" data-board="${tab}">${u ? S.avatar(u, 40) : '<span class="av ghosty">?</span>'}
-      <span><small>${label}</small><b>${u ? '@' + esc(u.username) : esc(empty)}</b><em>${u ? `${u.pts} XP · ${esc(routeName(u.routeId) || 'any route')}` : 'Share your bus to get here'}</em></span></button>`;
-    return `<div class="leaders">${card(B?.today[0], "🏆 Today's top", 'today', 'Could be you!')}${card(B?.weekTop[0], "👑 This week's best", 'week', 'Still open!')}</div>`;
   }
   function routesList() {
     const routes = Feed.routes;
@@ -507,7 +547,7 @@
   /* ---------- treats: champion's tea/coffee, route reputation ---------- */
   const stars = n => `<span class="stars" style="--p:${(n / 5) * 100}%" aria-label="${n} out of 5">★★★★★</span>`;
   const repLabel = n => (n >= 4.5 ? 'Royal seniors 👑' : n >= 3.5 ? 'Decent seniors 🙂' : n >= 2.5 ? 'Hmm… 🤨' : 'Kipta alert 🥲');
-  function treatBanner(routeId) {
+  function treatBanner(routeId, homeOnly) {
     const B = S.cachedBoard(null), R = B?.reputation?.[routeId];
     if (!R || !R.owed.length) return '';
     const r = Feed.routes.find(x => x.id === routeId), me = S.me;
@@ -516,6 +556,8 @@
       // invited: the most senior riders of the route, senior to the champion when the champion's batch is known
       const seniors = (B.seniors[routeId] || []).filter(s => s.id !== o.champion.id && (o.champion.batch == null || s.batch < o.champion.batch)).slice(0, 3);
       const days = Math.floor((Date.now() - o.since) / 864e5), mine = me && me.id === o.champion.id;
+      if (homeOnly && !mine && !(o.overdue && R.roast)) return ''; // home: only my own treat, or the Sunday treat report
+      if (homeOnly && !mine) return `<button class="daybar roast" data-gotreats>${ico('cup')}<span><b>Treat report:</b> ${esc(r?.name || '')} seniors still owe ${at(o.champion)} ☕×${o.cups} 🥲</span>${ICON_CHEV}</button>`;
       const vote = member && !mine ? `<button class="btn ghost-b sm" data-vouch="${o.treatIds.join(',')}">✋ I saw the treat happen <b>${o.votes}/${R.needed}</b></button>` : '';
       if (mine) return `<div class="treat me"><span class="tbig">👑</span><div><b>You're the champion of ${esc(r?.name || '')}!</b>
         <p>☕×${o.cups} invitation waiting from the most senior riders. Got treated? Confirm it in your profile.</p><button class="btn primary sm" data-me>Claim my treat</button></div></div>`;
@@ -529,8 +571,8 @@
   }
   function reputationLine(routeId) {
     const R = S.cachedBoard(null)?.reputation?.[routeId];
-    if (!R) return `<div class="repline">${stars(5)} <span>Generosity 5.0 · no treats due yet</span></div>`;
-    return `<div class="repline ${R.stingy ? 'bad' : ''}">${stars(R.rating)} <span>Generosity ${R.rating.toFixed(1)} · ${repLabel(R.rating)}${R.good ? ` · ${R.good} treat${R.good > 1 ? 's' : ''} given` : ''}</span></div>`;
+    if (!R) return `<button class="repline" data-gotreats>${stars(5)} <span>Generosity 5.0 · no treats due yet</span>${ICON_CHEV}</button>`;
+    return `<button class="repline ${R.stingy ? 'bad' : ''}" data-gotreats>${stars(R.rating)} <span>Generosity ${R.rating.toFixed(1)} · ${repLabel(R.rating)}${R.good ? ` · ${R.good} treat${R.good > 1 ? 's' : ''} given` : ''}</span>${ICON_CHEV}</button>`;
   }
 
   /* ================= One route ================= */
@@ -550,7 +592,7 @@
     if (sched) html += `<div class="sched">${ICON_CLOCK}<span>${sched}</span></div>`;
     if (st.kind === 'soon' || st.kind === 'done') html += `<div class="tripchip ${st.kind}"><b>${esc(st.title)}</b>${st.sub ? `<span>${esc(st.sub)}</span>` : ''}</div>`;
     if (r && myRoute === r.id) html += remindRow(r);
-    return html + busDetail(b, r) + (r ? routeTop(r.id) : '') + `<button class="fbtn" data-feedback="${r ? esc(r.id) : ''}">💬 Feedback about this route</button>`;
+    return html + busDetail(b, r) + (r ? routeTop(r.id) : '') + `<button class="fbtn" data-feedback="${r ? esc(r.id) : ''}">${ico('chat')}Feedback about this route</button>`;
   }
   function remindRow(r) {
     const timed = r.stops.filter(s => s.time);
@@ -562,7 +604,7 @@
   function routeTop(routeId) {
     const B = S.cachedBoard(routeId); if (!B) return '';
     const list = B.weekTop.slice(0, 3);
-    return `<div class="section-title">This week on this route</div>` + (list.length ? `<ol class="mini">${list.map((u, i) => `<li><button data-user="${esc(u.id)}">${['🥇', '🥈', '🥉'][i]} ${S.avatar(u, 28)} ${at(u)}<span>${u.pts} XP</span></button></li>`).join('')}</ol>`
+    return `<div class="section-title">This week on this route</div>` + (list.length ? `<ol class="mini">${list.map((u, i) => `<li><button data-user="${esc(u.id)}">${rankBadge(i)} ${S.avatar(u, 28)} ${at(u)}<span>${u.pts} XP</span></button></li>`).join('')}</ol>`
       : '<p class="muted-p">Nobody has shared this week yet. First come, first crowned 👑</p>') + `<button class="link more" data-board="week">Full leaderboard ›</button>`;
   }
   const stopsOnly = r => `<div class="section-title">Route stops</div><ol class="timeline">${r.stops.map(s => `<li class="upcoming"><i></i><div class="nm"><span>${esc(s.name)}</span><span class="tm">${s.time ? t12(s.time) : ''}</span></div></li>`).join('')}</ol>`;
@@ -600,9 +642,8 @@
   /* ================= Leaderboard ================= */
   function boardView() {
     const B = S.cachedBoard(boardRoute);
-    const tabs = [['today', 'Today'], ['week', 'Week'], ['all', 'All time'], ['battle', '⚔️ Routes']];
-    let html = `<button class="ghost back" data-back>${ICON_BACK} Home</button>
-      <div class="bhead"><h2>🏆 Leaderboard</h2><select data-boardroute aria-label="Route"><option value="">All routes</option>${Feed.routes.map(r => `<option value="${esc(r.id)}" ${boardRoute === r.id ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}</select></div>
+    const tabs = [['today', 'Today'], ['week', 'Week'], ['all', 'All time'], ['battle', 'Routes']];
+    let html = `<div class="bhead"><h2>${ico('trophy')}Leaderboard</h2><select data-boardroute aria-label="Route"><option value="">All routes</option>${Feed.routes.map(r => `<option value="${esc(r.id)}" ${boardRoute === r.id ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}</select></div>
       <div class="seg tabs3" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${boardTab === k}">${l}</button>`).join('')}</div>`;
     if (!B) return html + '<p class="muted-p">Loading…</p>';
     if (boardTab === 'battle') return html + battleView();
@@ -610,9 +651,10 @@
     html += list.length ? `<ol class="board">${list.map((u, i) => {
       const L = S.level(u.xp), me = S.me && S.me.id === u.id;
       return `<li class="${me ? 'me' : ''} ${i < 3 ? 'top' + (i + 1) : ''}"><button data-user="${esc(u.id)}">
-        <span class="rank">${['🥇', '🥈', '🥉'][i] || i + 1}</span>${S.avatar(u, 40)}
-        <span class="who"><b>@${esc(u.username)}${u.verified ? ' <span class="vf" title="Verified student">✔</span>' : ''}${me ? ' <em>you</em>' : ''}</b><small>Lv ${L.n} ${esc(L.name)}${!boardRoute && u.routeId ? ' · ' + esc(routeName(u.routeId)) : ''}</small>${S.badgeRow(u.badges)}</span>
-        <span class="pts"><b>${u.pts}</b><small>XP · ${u.km} km</small></span></button></li>`;
+        ${rankBadge(i)}${S.avatar(u, 40)}
+        <span class="who"><b>@${esc(u.username)}${u.verified ? ' <span class="vf" title="Verified student">✔</span>' : ''}${me ? ' <em>you</em>' : ''}</b><small>Lv ${L.n} · ${esc(L.name)}</small>
+          <small>${!boardRoute && u.routeId ? esc(routeName(u.routeId)) + ' · ' : ''}${u.km} km shared</small>${S.badgeRow(u.badges)}</span>
+        <span class="pts"><b>${u.pts}</b><small>XP</small></span></button></li>`;
     }).join('')}</ol>` : `<div class="emptyboard"><span>🏁</span><p>${boardTab === 'today' ? 'Nobody has shared today yet.' : 'No contributions yet.'} Share your bus location to take the #1 spot!</p></div>`;
     if (!S.joined) html += `<div class="joincta"><div><b>Want your name here?</b><p>Pick a username, share your bus, earn XP. No password needed.</p></div><button class="btn primary sm" data-join>Join</button></div>`;
     html += `<details class="howto"><summary>How do I earn XP?</summary><ul>
@@ -620,18 +662,14 @@
       <li>🚩 <b>+5</b> for being the first rider to share a trip; 🏁 <b>+15</b> for sharing it to the end.</li>
       <li>🛟 Half XP while you are a backup (bus phone or another rider is already live).</li>
       <li>👑 The weekly #1 of each route (Sat–Fri) wins a badge and a ☕ invitation from the most senior riders.</li></ul></details>`;
-    if (B.champions.length) html += `<div class="section-title">👑 Hall of champions</div><ol class="mini">${B.champions.slice(0, 8).map(c => `<li><button data-user="${esc(c.user.id)}">${S.avatar(c.user, 28)} ${at(c.user)}<span>${esc(routeName(c.routeId))} · week of ${new Date(c.week + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}</span></button></li>`).join('')}</ol>`;
-    const reps = Feed.routes.map(r => [r, B.reputation?.[r.id]]).filter(([r]) => !boardRoute || r.id === boardRoute);
-    html += `<div class="section-title">☕ Treat tracker · route reputation</div>` + reps.map(([r, R]) => `<div class="repcard" style="--route:${esc(r.color)}"><b>${esc(r.name)}</b>
-      ${stars(R ? R.rating : 5)} <span class="muted-s">${R ? `${R.rating.toFixed(1)} · ${repLabel(R.rating)}` : '5.0 · no treats due yet'}</span>
-      ${R && R.owed.length ? `<p>${R.owed.map(o => `${at(o.champion)} waits for ☕×${o.cups}${o.overdue ? ' <span class="late">overdue</span>' : ''}`).join(' · ')}</p>` : ''}
-      ${R && R.given.length ? `<p class="muted-s">Last treat: ${esc(R.given[0].giver ? '@' + R.given[0].giver : 'confirmed by riders')} → @${esc(R.given[0].champion)}</p>` : ''}</div>`).join('');
+    if (B.champions.length) html += `<div class="section-title">Hall of champions</div><ol class="mini">${B.champions.slice(0, 8).map(c => `<li><button data-user="${esc(c.user.id)}">${S.avatar(c.user, 28)} ${at(c.user)}<span>${esc(routeName(c.routeId))} · week of ${new Date(c.week + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}</span></button></li>`).join('')}</ol>`;
+    html += achievements();
     return html;
   }
 
   function battleView() {
     const B = S.cachedBoard(null) || {}, list = B.battle || [];
-    let html = `<div class="battle big"><div class="bt-head"><b>⚔️ Route battle · ${monthName((B.day || Feed.date()).slice(0, 7))}</b></div>
+    let html = `<div class="battle big"><div class="bt-head"><b>${ico('swords')}Route battle · ${monthName((B.day || Feed.date()).slice(0, 7))}</b></div>
       <p class="small">Which route keeps its bus live? Score = share of this month's bus trips where at least one rider shared. Every trip counts, big or small route.</p>
       ${list.length ? battleRows(list, 20) : '<p class="muted-p">No trips yet this month.</p>'}
       ${list.length ? `<small>${list.map(x => `${esc(routeName(x.routeId))}: ${x.covered}/${x.scheduled} trips · ${x.riders} rider${x.riders === 1 ? '' : 's'}`).join(' · ')}</small>` : ''}</div>`;
@@ -640,11 +678,45 @@
     return html;
   }
 
+  /* ================= Treat board: every route's weekly treat status and reputation ================= */
+  function treatsView() {
+    const B = S.cachedBoard(null);
+    let html = `<div class="bhead"><h2>${ico('cup')}Treat board</h2></div>
+      <p class="lede">Each route's weekly #1 contributor (Sat–Fri) is owed a tea or coffee by the route's most senior riders. Here everyone can see who treated, who didn't, and each route's reputation.</p>`;
+    if (!B) return html + '<p class="muted-p">Loading…</p>';
+    const rows = Feed.routes.map(r => ({ r, R: B.reputation?.[r.id] || null }))
+      .sort((a, b) => (b.R?.stingy ? 1 : 0) - (a.R?.stingy ? 1 : 0) || (a.R ? a.R.rating : 5) - (b.R ? b.R.rating : 5) || a.r.name.localeCompare(b.r.name));
+    html += `<div class="section-title">Route reputation</div><ol class="replist">${rows.map(({ r, R }) => {
+      const rating = R ? R.rating : 5;
+      return `<li><button data-treatroute="${esc(r.id)}" style="--route:${esc(r.color)}"><i class="rdot"></i><b>${esc(r.name)}</b>${stars(rating)}<span class="rnum">${rating.toFixed(1)}</span>
+        <small class="${R?.stingy ? 'bad' : ''}">${R?.stingy ? 'Treat overdue 🥲' : R?.owed.length ? 'Treat pending ☕' : repLabel(rating)}</small></button></li>`;
+    }).join('')}</ol>`;
+    html += rows.map(({ r, R }) => {
+      const me = S.me, member = me && me.routeId === r.id, seniors = B.seniors?.[r.id] || [];
+      const owed = (R?.owed || []).map(o => {
+        const days = Math.floor((Date.now() - o.since) / 864e5), sen = seniors.filter(s => s.id !== o.champion.id && (o.champion.batch == null || s.batch < o.champion.batch)).slice(0, 3);
+        const vote = member && me.id !== o.champion.id ? `<button class="btn ghost-b sm" data-vouch="${o.treatIds.join(',')}">I saw the treat happen · ${o.votes}/${R.needed}</button>` : '';
+        return `<div class="tb-item ${o.overdue ? 'late' : ''}">${S.avatar(o.champion, 34)}<div><b>${at(o.champion)} is owed ☕×${o.cups}</b>
+          <small>${o.overdue ? `Overdue · waiting ${days} days` : `Since ${days ? days + ' day' + (days > 1 ? 's' : '') : 'today'}`}${sen.length ? ` · Seniors on duty: ${sen.map(s => '@' + esc(s.username)).join(', ')}` : ''}</small>${vote}</div></div>`;
+      }).join('');
+      const given = (R?.given || []).map(g => `<li>☕ ${g.giver ? `<b>@${esc(g.giver)}</b> treated` : 'Riders confirmed a treat for'} <b>@${esc(g.champion)}</b><span>week of ${new Date(g.week + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}</span></li>`).join('');
+      if (!owed && !given) return '';
+      return `<section class="tb-card" id="tb-${esc(r.id)}" style="--route:${esc(r.color)}"><header><b>${esc(r.name)}</b>${stars(R.rating)}<span class="rnum">${R.rating.toFixed(1)}</span></header>
+        ${R.stingy ? '<p class="tb-roast">Seniors of this route are kipta (stingy) 🥲, holding a junior\'s treat hostage.</p>' : ''}${owed}${given ? `<ul class="tb-given">${given}</ul>` : ''}</section>`;
+    }).join('') || '<p class="muted-p">No treats yet. The first weekly champions are crowned on Saturday.</p>';
+    html += `<details class="howto"><summary>How the treat board works</summary><ul>
+      <li>👑 Saturday: the top contributor of each route last week becomes its champion and is owed ☕.</li>
+      <li>🫖 The champion confirms "I got my treat" with the senior's username; the senior earns the Generous Senior badge.</li>
+      <li>✋ If the champion forgets, most riders of the route can confirm it instead.</li>
+      <li>📣 A treat still pending after 7 days lowers the route's rating, and every Sunday the whole route sees the treat report.</li></ul></details>`;
+    return html;
+  }
+
   /* ================= Notifications ================= */
   function notifyView() {
     const back = `<button class="ghost back" data-back>${ICON_BACK} Back</button>`;
     const r = Feed.routes.find(x => x.id === myRoute);
-    let html = back + `<div class="bhead"><h2>🔔 Notifications</h2></div>`;
+    let html = back + `<div class="bhead"><h2>${ico('bell')}Notifications</h2></div>`;
     if (!r) html += `<label class="pickroute"><span>⭐ First pick your route</span><select data-myroute><option value="">Choose…</option>${Feed.routes.map(x => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></label>`;
     const timed = r ? r.stops.filter(s => s.time) : [];
     if (r && timed.length) html += `<label class="nrow"><span>Remind me at</span><select data-mystop="${esc(r.id)}"><option value="">the first stop</option>${timed.map(s => `<option ${myStops[r.id] === s.name ? 'selected' : ''} value="${esc(s.name)}">${esc(s.name)} (${t12(s.time)})</option>`).join('')}</select></label>`;
@@ -671,7 +743,7 @@
   /* ================= Feedback (only the transport office reads it) ================= */
   function feedbackView() {
     const back = `<button class="ghost back" data-back>${ICON_BACK} Back</button>`, sel = view.routeId || myRoute;
-    return back + `<div class="bhead"><h2>💬 Feedback</h2></div>
+    return back + `<div class="bhead"><h2>${ico('chat')}Feedback</h2></div>
       <form data-form="feedback" class="pform card2">
         <p class="small">Only the transport office can read this. Problems with a bus, the schedule or the app, or an idea: tell us.</p>
         <div class="row2"><label class="field"><span>Route</span><select name="route"><option value="">Not about a route</option>${Feed.routes.map(r => `<option value="${esc(r.id)}" ${sel === r.id ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}</select></label>
@@ -729,7 +801,7 @@
       <p class="small">No password: your account lives on this phone. Save the recovery code to use it on another phone.</p>
       <div class="inrow"><button class="btn ghost-b sm" data-showkey>Show recovery code</button><button class="btn ghost-b sm" data-newkey>Make a new code</button></div>
       <div class="inrow"><button class="link" data-signout>Sign out on this phone</button><button class="link danger" data-delete>Delete account</button></div></div></details>
-    <button class="fbtn" data-feedback>💬 Send feedback</button>`;
+    <button class="fbtn" data-feedback>${ico('chat')}Send feedback</button>`;
     return html;
   }
   const emojiGrid = sel => S.EMOJIS.map(e => `<button type="button" role="radio" data-emoji="${e}" aria-checked="${e === sel}">${e}</button>`).join('');

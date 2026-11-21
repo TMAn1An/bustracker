@@ -11,7 +11,8 @@ export function db() {
   return _db;
 }
 
-export const CAMPUS = { name: 'IUBAT Campus', lat: 23.8882231, lng: 90.3906409 };
+import { SITE } from './_config.js';
+export const CAMPUS = SITE.campus; // set in api/_config.js
 
 export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS students (id TEXT PRIMARY KEY, name TEXT, pass TEXT NOT NULL)`,

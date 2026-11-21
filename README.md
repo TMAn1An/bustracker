@@ -1,21 +1,89 @@
+<div align="center">
+
+<img src="assets/logo.png" alt="" width="84">
+
 # IUBAT Bus Tracker
 
-**Open to everyone** (no sign-in): see **all routes** and tap a route to follow its bus live on a 3D map: where it is coming from / going to
-(both inbound to campus and outbound from campus), next stop, arrival time and the departure schedule.
-Anyone on the bus can **share its location** from their phone (checked automatically), earn XP, badges and a place on the route leaderboard.
-Admins manage buses (number, route, departure times), routes and stops, and publish **notices** that appear in every student app within seconds.
+**Where is my campus bus right now?** A live, crowd-powered bus tracker built by students, for students.<br>
+Open to everyone, free to run, and ready to fork for your own university.
 
+[**Live app**](https://bustracker.iubat.workers.dev) · [Use it at your university](#use-it-at-your-university) · [Features](#features) · [How it works](#how-it-works)
+
+![License: MIT](https://img.shields.io/badge/license-MIT-0b6e1c)
+![Runs on Cloudflare Workers free plan](https://img.shields.io/badge/hosting-Cloudflare%20Workers%20(free)-f38020)
+![Database: Turso free](https://img.shields.io/badge/database-Turso%20(free)-4ff8d2)
+![PWA](https://img.shields.io/badge/app-installable%20PWA-5a0fc8)
+![No API keys](https://img.shields.io/badge/maps-OpenStreetMap%2C%20no%20API%20key-7ebc6f)
+
+<img src="docs/screenshots/1-home.jpg" width="200" alt="Home: my route countdown and all routes"> <img src="docs/screenshots/3-route.jpg" width="200" alt="A route with its live bus"> <img src="docs/screenshots/4-ranking.jpg" width="200" alt="Contributor ranking"> <img src="docs/screenshots/5-treats.jpg" width="200" alt="Treat board">
+
+</div>
+
+## Why
+Every morning the same question goes around every group chat: *"Has the bus left yet?"* Universities rarely have a tracking system,
+and buying GPS hardware takes years. This project needs **no hardware and no budget**: the students on the bus share its location
+from their phones (checked automatically, so nobody can fake it from home), everyone else sees the bus live on a 3D map, and
+the sharers are rewarded with XP, badges, a leaderboard and (the fun part) a weekly cup of tea owed by the seniors of their route.
+
+## Features
+| | |
+|---|---|
+| 🗺️ **Live 3D map** | Every route and bus, where it is, where it is going, next stop, ETA; timetable estimate when no one is sharing |
+| 📍 **Crowd-sourced location** | Riders share from their phone; the server verifies it (on the route, moving like a bus, no jumps) |
+| ⏰ **Reminders** | Web Push 20 minutes before your bus leaves (from *your* stop), even with the app closed |
+| 🏆 **XP, levels, badges** | 10 XP per km, 14 badges, GitHub-style contribution graph, daily / weekly / all-time ranking |
+| ☕ **Treat board** | Each route's weekly champion is owed tea by the seniors; unpaid treats lower the route's public rating 🥲 |
+| ⚔️ **Route battle** | Monthly: which route keeps the most of its trips live? |
+| 💺 **Seats** | Riders report free seats in one tap |
+| 📅 **University calendar** | Normal week + exam days / holidays; double-XP weeks |
+| 🛡️ **Admin dashboard** | Routes & stops (bulk paste, auto-locate), buses, notices (+push), photo moderation, feedback inbox |
+| 🔑 **No passwords** | Pick a username; a device key + recovery code identify you. Student-ID linking is prepared |
+| 💸 **Free to run** | Cloudflare Workers + Turso free plans, OpenStreetMap tiles, no paid APIs |
+
+<p align="center"><img src="docs/screenshots/2-live-map.jpg" width="200" alt="Live map"> <img src="docs/screenshots/6-profile.jpg" width="200" alt="Profile with badges and contribution graph"></p>
+
+## Use it at your university
+You can run your own copy in about 30 minutes, for free. No server to manage.
+
+1. **Fork** this repository (button at the top right) and clone your fork.
+2. **Your campus**: edit [`api/_config.js`](api/_config.js) (name, campus location, site URL, time zone).
+   Branding: replace `assets/logo.png` and the icons in `assets/icons/`, and change the name in `index.html`, `manifest.webmanifest`,
+   `admin/index.html` and `privacy.html` (search for `IUBAT`). Brand colour: `--green` in `css/style.css`.
+3. **Database**: create a free [Turso](https://turso.tech) database; note its URL and token.
+4. **Hosting**: create a free Cloudflare Worker connected to your fork (Workers Builds), with secrets `TURSO_DATABASE_URL`,
+   `TURSO_AUTH_TOKEN`, `SESSION_SECRET` (any long random text). Every push then deploys automatically. Details: [Production](#production-cloudflare-workers--turso-free-plans).
+5. **First admin**: `TURSO_DATABASE_URL=… TURSO_AUTH_TOKEN=… node db/seed.js --no-demo` then `node db/seed.js --admin <name> <password>`.
+6. Open `/admin/`, add your routes (paste the stop list from your bus schedule), buses and departure times. Share the link with students.
+
+**Time zone**: the app assumes one time zone for the whole campus (`utcOffsetHours` in `api/_config.js`, sent to the app automatically).
+
+### Credit & community
+This project is MIT licensed: use it, change it, ship it. If it helps your campus:
+- keep the small *"Open source · build one for your university"* link in the app footer, so the next university can find it too;
+- open a pull request adding your university to the list below (with your live link). Every campus on the list makes the project more useful for the next one;
+- improvements you make for your campus (new features, translations, fixes) are very welcome as pull requests: see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+**Universities using it**
+| University | Link |
+|---|---|
+| IUBAT (International University of Business Agriculture and Technology), Dhaka | [bustracker.iubat.workers.dev](https://bustracker.iubat.workers.dev) |
+| *Your university?* | *Add it with a pull request* |
+
+## How it works
 ```
-Bus phone (Android) --GPS every 3+ s--> /api/track --> Turso (one row per bus)
-Student browser <--poll every 4 s-- /api/buses <--------┘
-Admin dashboard  --> /api/admin  (bus numbers, routes, stops, tracker tokens)
-Map: MapLibre + OpenFreeMap (OpenStreetMap data, free, no API key). Route snapping: OSRM.
+Riders' phones ──verified GPS──▶ /api/share ─┐
+Bus phone (optional) ──GPS────▶ /api/track ─┼─▶ Turso (SQLite at the edge)
+                                            │
+Students' app ◀──poll 8–60 s── /api/buses ──┘      Cron (every minute) ──▶ Web Push reminders
+Admin dashboard ──▶ /api/admin                     Map: MapLibre + OpenFreeMap (OpenStreetMap), routes snapped with OSRM
 ```
+Plain JavaScript, no framework and no build step: `index.html` + `js/` (app), `api/` (serverless handlers that run on Cloudflare Workers,
+Vercel or the local dev server), `admin/` (dashboard), `sw.js` (offline shell + push).
 
 ## Run locally
 ```sh
 npm install
-npm run seed        # local.db + Rajendrapur route / Bus 11 + demo logins + tracker token (.bus-tokens.json)
+npm run seed        # local.db + a starter route / Bus 11 + demo admin + tracker token (.bus-tokens.json)
 npm run dev         # http://localhost:3000   (admin: /admin/)
 npm run simulate    # another terminal: fake GPS from the bus phones, driving both directions
 ```

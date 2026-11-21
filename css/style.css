@@ -581,3 +581,104 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
 .studentrow { width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; margin: 10px 0; padding: 12px 14px; border: 1px solid #d6e2fb; border-radius: var(--r); background: #f6f9ff; }
 .studentrow > span { font-size: 24px; } .studentrow div { flex: 1; } .studentrow b { font-size: 14px; } .studentrow small { display: block; font-size: 12.5px; color: var(--muted); line-height: 1.4; }
 .studentrow em { font-style: normal; font-size: 11.5px; font-weight: 700; color: #1d6fe0; background: #e5efff; padding: 2px 8px; border-radius: 999px; }
+
+/* =====================================================================
+   v4 design pass: calmer, more professional (university) look.
+   Clear sections (Buses / Ranking / Treats), line icons in headings,
+   emoji kept only where they are the fun part (badges, treats).
+   ===================================================================== */
+.panel-body { padding-top: 4px; }
+.pnav { flex: none; display: flex; gap: 4px; margin: 10px 16px 2px; padding: 4px; background: #f0f2ee; border-radius: 12px; }
+.pnav button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 0; background: none; padding: 8px 6px; border-radius: 9px;
+  font-weight: 600; font-size: 13.5px; color: var(--muted); transition: background .15s, color .15s; }
+.pnav button .i { font-size: 16px; }
+.pnav button:hover { color: var(--ink); }
+.pnav button[aria-current] { background: #fff; color: var(--green); box-shadow: 0 1px 2px rgba(16,24,20,.08), 0 1px 6px rgba(16,24,20,.06); }
+
+/* top bar: a clear "Join" call to action */
+.mebtn:not(.joined) { background: #fff; color: var(--green); font-weight: 700; }
+.mebtn:not(.joined):hover { background: #f1f8f2; }
+
+/* headings with line icons */
+.bhead h2 { display: inline-flex; align-items: center; gap: 9px; font-size: 19px; letter-spacing: -.01em; }
+.bhead h2 .i { color: var(--green); font-size: 20px; }
+.lede { margin: -2px 2px 12px; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+.battle .bt-head b { display: inline-flex; align-items: center; gap: 7px; } .battle .bt-head .i { color: #7c3aed; }
+
+/* segmented controls (leaderboard periods, buses on a route) */
+.seg { background: #f0f2ee; padding: 3px; border-radius: 10px; gap: 2px; }
+.seg button { border: 0; background: none; color: var(--muted); border-radius: 8px; }
+.seg button[aria-selected="true"] { background: #fff; color: var(--green); border: 0; box-shadow: 0 1px 2px rgba(16,24,20,.1); }
+.seg button[aria-selected="true"] .dot { box-shadow: none; }
+
+/* rank badges instead of medal emoji */
+.rk { flex: none; width: 26px; height: 26px; border-radius: 50%; display: inline-grid; place-items: center; font: 700 12.5px/1 var(--font); font-variant-numeric: tabular-nums;
+  color: var(--muted); background: #f0f2ee; }
+.rk1 { color: #fff; background: linear-gradient(135deg, #f7c948, #d99a00); box-shadow: 0 1px 3px rgba(217,154,0,.45); }
+.rk2 { color: #fff; background: linear-gradient(135deg, #cbd5e1, #8b97a8); }
+.rk3 { color: #fff; background: linear-gradient(135deg, #e9a66f, #b5703a); }
+
+/* leaderboard rows: XP stays on one line, km moves to the subtitle */
+.board { gap: 8px; }
+.board button { padding: 10px 14px 10px 10px; gap: 12px; border-radius: 14px; }
+.board .top1 button { background: linear-gradient(90deg, #fffbea, #fff 60%); border-color: #f0dc8f; }
+.board .who { gap: 1px; }
+.board .who small + small { color: #8a938c; }
+.board .pts { flex: none; min-width: 52px; align-items: flex-end; white-space: nowrap; }
+.board .pts b { font-size: 19px; line-height: 1.1; }
+.board .pts small { font-size: 11px; font-weight: 600; letter-spacing: .04em; color: var(--muted); }
+.mini button .rk { width: 22px; height: 22px; font-size: 11px; }
+.brow2 .bn { display: inline-flex; align-items: center; gap: 8px; } .brow2 .rk { width: 22px; height: 22px; font-size: 11px; }
+
+/* special notices on home: slim, one line each */
+.daybar { display: flex; align-items: center; gap: 9px; padding: 9px 12px; font-size: 13.5px; margin: 10px 0 0; }
+.daybar .i { flex: none; font-size: 16px; }
+.daybar.boost { background: linear-gradient(90deg, #fff4ec, #fff0f6); border-color: #f7cdb3; color: #8a2d0b; }
+
+/* reputation line on a route: tappable, opens the treat board */
+button.repline { width: 100%; border: 0; background: none; padding: 2px 0; text-align: left; font: inherit; font-size: 13px; color: var(--ink-2); }
+button.repline .i { margin-left: auto; color: #b5bdb6; }
+button.repline:hover span { text-decoration: underline; }
+
+/* treat board */
+.replist { list-style: none; margin: 0 0 16px; padding: 0; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #fff; }
+.replist li + li { border-top: 1px solid var(--line); }
+.replist button { width: 100%; display: grid; grid-template-columns: 10px 1fr auto 30px; grid-template-rows: auto auto; align-items: center; gap: 2px 10px;
+  border: 0; background: none; padding: 11px 14px; text-align: left; font-size: 14.5px; }
+.replist button:hover { background: #fafbf9; }
+.replist .rdot { width: 10px; height: 10px; border-radius: 3px; background: var(--route); grid-row: 1 / 3; }
+.replist small { grid-column: 2 / -1; color: var(--muted); font-size: 12.5px; } .replist small.bad { color: #b42318; font-weight: 600; }
+.rnum { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 13.5px; text-align: right; }
+.tb-card { border: 1px solid var(--line); border-top: 3px solid var(--route); border-radius: 14px; background: #fff; padding: 12px 14px; margin-bottom: 12px; scroll-margin-top: 8px; }
+.tb-card header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 15px; } .tb-card header .rnum { margin-left: 2px; }
+.tb-roast { margin: 0 0 10px; padding: 8px 10px; border-radius: 9px; background: #fef3f2; color: #912018; font-size: 13px; }
+.tb-item { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px dashed var(--line); }
+.tb-item:first-of-type { border-top: 0; }
+.tb-item b { font-size: 14px; } .tb-item small { display: block; color: var(--muted); font-size: 12.5px; margin: 2px 0 6px; line-height: 1.4; }
+.tb-item.late small { color: #b42318; }
+.tb-given { list-style: none; margin: 6px 0 0; padding: 8px 0 0; border-top: 1px solid var(--line); font-size: 13px; }
+.tb-given li { display: flex; gap: 6px; flex-wrap: wrap; padding: 3px 0; } .tb-given span { margin-left: auto; color: var(--muted); font-size: 12px; }
+
+/* treat cards on a route page: calmer */
+.treat { padding: 11px 13px; border-radius: 12px; } .tbig { font-size: 22px; }
+
+/* buttons with icons, footer */
+.fbtn { display: flex; align-items: center; justify-content: center; gap: 8px; border-style: solid; background: #fff; color: var(--ink-2); }
+.fbtn .i { color: var(--green); }
+.pfoot { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 18px 0 6px; font-size: 12.5px; color: var(--muted); text-align: center; }
+.pfoot a { color: var(--muted); } .pfoot > a { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--ink-2); text-decoration: none; }
+.pfoot > a:hover { color: var(--green); }
+
+/* route cards: a little more air */
+.rcard { padding: 14px 12px 14px 20px; border-radius: 14px; }
+.section-title { margin: 18px 2px 10px; }
+.mycard { border-radius: 16px; }
+@media (max-width: 860px) { .pnav { margin: 4px 14px 2px; } .pnav button { font-size: 13px; padding: 8px 4px; } }
+.pickroute { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px 11px 14px; border-style: solid; background: #fff; border-radius: 14px; }
+.pickroute > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; } .pickroute b { font-size: 14.5px; color: var(--ink); }
+.pickroute small { font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+.pickroute select { flex: none; max-width: 46%; font-weight: 600; color: var(--green); }
+.bhead { margin-top: 12px; }
+button.daybar { width: 100%; text-align: left; font: inherit; font-size: 13.5px; cursor: pointer; }
+.daybar.roast { background: #fff4f2; border-color: #f7c8c0; color: #7a1d14; }
+.daybar.roast > .i:last-child { margin-left: auto; color: #d99a94; }
