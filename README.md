@@ -7,7 +7,7 @@
 **Where is my campus bus right now?** A live, crowd-powered bus tracker built by students, for students.<br>
 Open to everyone, free to run, and ready to fork for your own university.
 
-[**Live app**](https://bustracker.iubat.workers.dev) · [▶ 38-second demo video](docs/media/promo.mp4) · [Use it at your university](#use-it-at-your-university) · [Features](#features) · [How it works](#how-it-works)
+[**Live app**](https://bustracker.iubat.workers.dev) · [▶ 1-minute demo video](docs/media/promo.mp4) · [Use it at your university](#use-it-at-your-university) · [Features](#features) · [How it works](#how-it-works)
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-0b6e1c)
 ![Runs on Cloudflare Workers free plan](https://img.shields.io/badge/hosting-Cloudflare%20Workers%20(free)-f38020)
@@ -200,7 +200,12 @@ The same tab sets an **XP boost** (e.g. *Exam week double XP*, 1.5×/2×/3× bet
   On Vercel there is no every-minute cron, so reminders only work on Cloudflare.
 
 ## Seats, route battle, feedback
-- **Seats**: a verified rider who is sharing taps 🟢 Plenty / 🟡 Few / 🔴 Packed; everyone sees it on the route for 25 minutes (+2 XP, max 3 per trip; 💺 Seat Scout badge after 5).
+- **Seats**: a verified rider who is sharing taps 🟢 Plenty / 🟡 Few / 🔴 Packed; everyone sees it until the bus reaches its **next stop**
+  (people get on and off there) or the trip ends, 25 minutes at most (+2 XP, max 3 per trip; 💺 Seat Scout badge after 5).
+- **A rider stops sharing before the end of the trip** (taps Stop, phone offline, battery): the bus does not disappear or jump to the
+  timetable. The app keeps moving it from its last live position at its usual speed, clearly labelled *estimated from its last live position*,
+  never claims it arrived, and gives up after 20 minutes. The rider keeps the XP earned so far (no full-ride bonus); the only sharer of a
+  live trip is asked to confirm before stopping, and riders on that bus are invited to share.
 - **Route battle** (monthly): score = share of this month's scheduled bus trips (open days × buses × 2) that had a verified rider. Fair for
   big and small routes. The winner is crowned on the 1st; everyone who shared on it gets ⚔️ Route Warrior.
 - **Feedback**: anyone can send feedback (route, topic, message, optional contact; sent as their username or anonymously). Only admins see it

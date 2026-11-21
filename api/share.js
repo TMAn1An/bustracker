@@ -63,11 +63,12 @@ export default async function handler(req, res) {
   // Seat report from a verified rider of this bus: "plenty" / "few" / "full" (+2 XP, up to 3 per trip)
   if (body.action === 'seats') {
     const level = ['plenty', 'few', 'full'].includes(body.level) ? body.level : null;
-    const ses = (await db().execute({ sql: 'SELECT bus_id, status, last_ts FROM share_sessions WHERE student_id = ?', args: [sid] })).rows[0];
+    const ses = (await db().execute({ sql: 'SELECT bus_id, status, last_ts, last_s FROM share_sessions WHERE student_id = ?', args: [sid] })).rows[0];
     if (!level || !ses || !['verified', 'backup'].includes(ses.status) || Date.now() - ses.last_ts > 60e3)
       return res.status(403).json({ error: 'Seat reports come from verified riders who are sharing this bus.' });
     const now = Date.now();
-    await db().execute({ sql: 'UPDATE trips SET seats = ?, seats_at = ? WHERE bus_id = ? AND day = ? AND leg = ?', args: [level, now, ses.bus_id, bt.day, leg] });
+    // the report is valid until the bus reaches its next stop (people get on and off there); the app checks this
+    await db().execute({ sql: 'UPDATE trips SET seats = ?, seats_at = ?, seats_s = ? WHERE bus_id = ? AND day = ? AND leg = ?', args: [level, now, ses.last_s ?? null, ses.bus_id, bt.day, leg] });
     if (await hit(`seat:${sid}:${bt.day}:${leg}`, 1, 5 * 60e3)) // XP at most once per 5 minutes
       await db().execute({ sql: 'UPDATE contrib SET seat_reports = seat_reports + 1 WHERE user_id = ? AND bus_id = ? AND day = ? AND leg = ?', args: [sid, ses.bus_id, bt.day, leg] });
     return res.status(200).json({ ok: true, seats: level });

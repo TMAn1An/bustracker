@@ -214,7 +214,13 @@
     if (q('[data-route]')) return openRoute(q('[data-route]').dataset.route);
     if (q('[data-bus]')) return openBus(q('[data-bus]').dataset.bus);
     if (q('[data-share]')) return askShare(q('[data-share]').dataset.share);
-    if (q('[data-unshare]')) return Share.stop();
+    if (q('[data-unshare]')) {
+      // Stopping before the end of the trip: fine (you keep your XP), but if you're the only sharer, say what happens.
+      const leg = Feed.legNow(), tr = leg && Feed.trip(Share.busId, leg);
+      if (Share.status === 'verified' && tr?.state === 'live' && (Feed.riders[Share.busId] || 0) <= 1 &&
+        !confirm(`You're the only one sharing Bus ${Share.busId}, and it hasn't arrived yet. If you stop, others will see an estimate instead of the live bus. Stop anyway? (You keep the XP you earned.)`)) return;
+      return Share.stop();
+    }
     if (q('[data-gosh]')) return openBus(Share.busId);
     if (q('[data-board]')) { boardTab = q('[data-board]').dataset.board; return go({ name: 'board' }); }
     if (q('[data-gotreats]')) return go({ name: 'treats' });
@@ -422,7 +428,7 @@
   }
   /* ---------- seats ---------- */
   const SEATS = [['plenty', '🟢', 'Plenty'], ['few', '🟡', 'Few'], ['full', '🔴', 'Packed']];
-  const seatsOf = busId => { const leg = Feed.legNow(); return leg ? Feed.trip(busId, leg)?.seats || null : null; };
+  const seatsOf = busId => { const leg = Feed.legNow(), s = leg ? Feed.trip(busId, leg)?.seats || null : null; return s && Feed.seatsValid(busId, s) ? s : null; };
   function seatsPill(busId) {
     const s = seatsOf(busId); if (!s) return '';
     const [, e, l] = SEATS.find(x => x[0] === s.level), ago = Math.max(1, Math.round((Date.now() + Feed.offset - s.at) / 60e3));
@@ -461,7 +467,7 @@
     try { const j = await S.thank(busId); const tr = Feed.trip(busId, Feed.legNow()); if (tr && j.thanks) tr.thanks = j.thanks; pop('🙏'); } catch (e) { toast(e.message, true); }
     render();
   }
-  const srcText = b => (b.source === 'crowd' ? 'via a rider on board' : b.source === 'schedule' ? 'estimated from the timetable' : 'via bus GPS');
+  const srcText = b => (b.source === 'crowd' ? 'via a rider on board' : b.source === 'schedule' ? 'estimated from the timetable' : b.source === 'lost' ? 'estimated from its last live position' : 'via the bus phone');
 
   /* ================= Home ================= */
   function homeView() {
@@ -616,7 +622,8 @@
     if (b.noRoute) return head + `<p class="muted-p">No route assigned yet. Live position is shown on the map.</p>`;
     const off = b.status === 'offline', est = b.status === 'estimated';
     const next = off ? 'Offline' : (b.nextStop ? esc(b.nextStop.name) : 'Arrived');
-    const estNote = est ? `<div class="estnote"><b>No live signal right now.</b> This position is estimated from the timetable (left ${esc(short(b.from))} at ${t12(b.estDepart)}${b.estByStops ? ', following the stop pick-up times' : ', assuming about 22 km/h'}). The real bus may be ahead or behind.</div>` : '';
+    const estNote = est && b.estByLast ? `<div class="estnote"><b>Live signal lost ${b.lostMin ? b.lostMin + ' min' : 'a moment'} ago.</b> The rider sharing this bus stopped or went offline, so we keep moving it from its last live position at its usual speed. It may be ahead or behind. On this bus? Share to help everyone.</div>`
+      : est ? `<div class="estnote"><b>No live signal right now.</b> This position is estimated from the timetable (left ${esc(short(b.from))} at ${t12(b.estDepart)}${b.estByStops ? ', following the stop pick-up times' : ', assuming about 22 km/h'}). The real bus may be ahead or behind.</div>` : '';
     return `${head}${estNote}
       <div class="journey">
         <div class="j-ends"><div><small>From</small><b>${esc(b.from)}</b></div><div class="to"><small>To</small><b>${esc(b.to)}</b></div></div>

@@ -93,6 +93,13 @@
       if (!this.calendar.openDays.includes(dow)) return false;
       const d = parseDays(sched?.days); return !d || d.has(dow);
     },
+    /** A seat report is valid until the bus reaches its next stop (people get on and off there). */
+    seatsValid(busId, seats) {
+      const st = this.state.get(busId);
+      if (!seats || seats.s == null || !st || !st.r || !st.fix || this._age(st) > OFFLINE_S) return !!seats;
+      const cur = st.fix.s, dir = st.dir;
+      return !st.r.stops.some(x => (dir > 0 ? x.s > seats.s + 40 && x.s <= cur + 30 : x.s < seats.s - 40 && x.s >= cur - 30));
+    },
     boostNow() { const b = this.boost, d = this.date(); return b && d >= b.from && d <= b.to ? b : null; },
 
     /** Load routes and bus->route assignment (public). Safe to call again when `rev` changes. */
@@ -207,6 +214,17 @@
       if (st.estAt && now - st.estAt < 1000) return st.est;
       st.estAt = now; st.est = null;
       const r = st.r, sc = st.schedule;
+      // Live signal lost mid-trip (the rider stopped sharing or went offline before the end):
+      // keep the bus moving from its last live position at its usual speed instead of jumping to the timetable.
+      // Never claims arrival: it stops short of the end of the route, and gives up after 20 minutes.
+      const f = st.fix, lost = f ? this._age(st) : Infinity;
+      if (r && f && f.off < 80 && lost > OFFLINE_S && lost < 20 * 60 && this.trip(st.id, st.dir > 0 ? 'am' : 'pm')?.state === 'live') {
+        const v = Math.max(15 / 3.6, Math.min(30 / 3.6, st.ema)) * 0.85, end = st.dir > 0 ? r.length - 200 : 200;
+        let s = f.s + st.dir * v * lost; s = st.dir > 0 ? Math.min(s, end) : Math.max(s, end);
+        const p = pointAt(r, s);
+        st.est = { s, dir: st.dir, v, lng: p.lng, lat: p.lat, heading: st.dir > 0 ? p.bearing : (p.bearing + 180) % 360, depart: null, byLast: true, lostMin: Math.round(lost / 60) };
+        return st.est;
+      }
       if (!r || !sc) return null;
       const t = dhaka(now + this.offset);
       if (!this.busRuns(sc)) return null; // university closed, or not this bus's day
@@ -263,7 +281,7 @@
       const travel = dir > 0 ? r.stops : r.stops.slice().reverse();
       const from = travel[0].name, to = travel[travel.length - 1].name;
       const base = { id: st.id, routeId: r.id, routeName: r.name, color: r.color, status: est ? 'estimated' : status, from, to,
-        toCampus: dir > 0, inbound: dir > 0, estimated: !!est, estDepart: est ? est.depart : null, estByStops: !!(est && est.byStops), speedKmh: 0, progress: 0, nextStop: null, destEta: 0, destEtaText: '—',
+        toCampus: dir > 0, inbound: dir > 0, estimated: !!est, estDepart: est ? est.depart : null, estByStops: !!(est && est.byStops), estByLast: !!(est && est.byLast), lostMin: est ? est.lostMin : null, speedKmh: 0, progress: 0, nextStop: null, destEta: 0, destEtaText: '—',
         nextEtaText: '—', atStop: null, lastUpdateSec: null,
         stops: travel.map(s => ({ name: s.name, state: 'upcoming', etaMin: 0, time: s.time || null })) };
       if (!f && !est) return { ...base, noData: true };
@@ -287,7 +305,7 @@
         destEtaText: status === 'offline' && !est ? '—' : approx + fmtMin(destEta),
         nextEtaText: nextStop ? approx + fmtMin(nextStop.etaMin) : '—',
         atStop: here ? here.name : null, lastUpdateSec: f ? Math.round(age) : null,
-        lng: est ? est.lng : f.lng, lat: est ? est.lat : f.lat, source: est ? 'schedule' : (f.source || 'device') };
+        lng: est ? est.lng : f.lng, lat: est ? est.lat : f.lat, source: est ? (est.byLast ? 'lost' : 'schedule') : (f.source || 'device') };
     },
   };
   window.Feed = Feed;

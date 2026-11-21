@@ -87,11 +87,12 @@ const MIGRATIONS = [
   `ALTER TABLE contrib ADD COLUMN seat_reports INTEGER NOT NULL DEFAULT 0`, // seat availability reports on this trip
   `ALTER TABLE trips ADD COLUMN seats TEXT`,           // 'plenty' | 'few' | 'full', reported by a verified rider
   `ALTER TABLE trips ADD COLUMN seats_at INTEGER`,
+  `ALTER TABLE trips ADD COLUMN seats_s REAL`,       // where on the route the seat report was made (it expires at the next stop)
   `CREATE UNIQUE INDEX IF NOT EXISTS users_student ON users (student_id) WHERE student_id IS NOT NULL`,
 ];
 
 // Bump SCHEMA_V whenever SCHEMA or MIGRATIONS change.
-const SCHEMA_V = '6';
+const SCHEMA_V = '7';
 // Create any missing tables once per serverless instance (cheap: CREATE TABLE IF NOT EXISTS).
 let _schema;
 export function ensureSchema() {

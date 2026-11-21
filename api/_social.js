@@ -114,9 +114,10 @@ export async function tripTick(busId, leg, day, s, length, now, firstUser) {
         state = CASE WHEN state = 'waiting' AND ? THEN 'live' WHEN state = 'live' AND ? THEN 'arrived' ELSE state END,
         started_at = CASE WHEN state = 'waiting' AND ? THEN ? ELSE started_at END,
         arrived_at = CASE WHEN state = 'live' AND ? THEN ? ELSE arrived_at END,
-        first_user = COALESCE(first_user, ?)
+        first_user = COALESCE(first_user, ?),
+        seats = CASE WHEN state = 'live' AND ? THEN NULL ELSE seats END
       WHERE bus_id = ? AND day = ? AND leg = ? RETURNING *`,
-    args: [far ? 1 : 0, atEnd ? 1 : 0, far ? 1 : 0, now, atEnd ? 1 : 0, now, firstUser || null, busId, day, leg],
+    args: [far ? 1 : 0, atEnd ? 1 : 0, far ? 1 : 0, now, atEnd ? 1 : 0, now, firstUser || null, atEnd ? 1 : 0, busId, day, leg],
   });
   return r.rows[0];
 }

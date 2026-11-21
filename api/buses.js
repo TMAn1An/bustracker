@@ -11,7 +11,7 @@ export default async function handler(req, res) {
   const [pos, rev, trips, sharing, outbox] = await db().batch([
     'SELECT bus_id AS id, lat, lng, speed, heading, ts, source FROM positions',
     `SELECT value FROM settings WHERE key = 'rev'`,
-    { sql: 'SELECT bus_id, leg, state, started_at, arrived_at, thanks, seats, seats_at FROM trips WHERE day = ?', args: [bdNow(now).day] },
+    { sql: 'SELECT bus_id, leg, state, started_at, arrived_at, thanks, seats, seats_at, seats_s FROM trips WHERE day = ?', args: [bdNow(now).day] },
     { sql: `SELECT bus_id, COUNT(*) AS n FROM share_sessions WHERE last_ts > ? AND status IN ('verified','backup') GROUP BY bus_id`, args: [now - 30e3] },
     'SELECT EXISTS (SELECT 1 FROM push_msgs WHERE sent_at IS NULL) AS n',
   ], 'read');
@@ -22,7 +22,7 @@ export default async function handler(req, res) {
   res.status(200).json({
     now, rev: rev.rows[0]?.value || '0', buses: pos.rows.map(x => ({ ...x })),
     trips: trips.rows.map(t => ({ bus: t.bus_id, leg: t.leg, state: t.state, startedAt: t.started_at, arrivedAt: t.arrived_at, thanks: Number(t.thanks),
-      seats: t.seats && now - t.seats_at < 25 * 60e3 ? { level: t.seats, at: t.seats_at } : null })), // seat reports fade after 25 min
+      seats: t.seats && now - t.seats_at < 25 * 60e3 ? { level: t.seats, at: t.seats_at, s: t.seats_s } : null })), // gone at the next stop, or after 25 min at most
     riders,
   });
 }
