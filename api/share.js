@@ -12,7 +12,8 @@
 import { db, studentFrom, num, ensureSchema, getSetting } from './_lib.js';
 import { prepRoute, project, metres } from './_geo.js';
 
-const MAX_ACC = 60, ON_ROUTE = 80, MIN_PROGRESS = 400, MIN_WINDOW = 90e3, MIN_KMH = 8, MAX_KMH = 120;
+const MAX_ACC = 60, ON_ROUTE = 80, MIN_PROGRESS = 400, MIN_WINDOW = 90e3, // ~9 fixes at one every 10 s
+      MIN_KMH = 8, MAX_KMH = 120;
 const WINDOW = 4 * 60e3, STALL_MS = 6 * 60e3, STALL_M = 60, AGREE_M = 500, PEER_FRESH = 20e3, DEVICE_FRESH_MS = 45e3;
 const MIN_GAP = 2500, END_M = 150;
 

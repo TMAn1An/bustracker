@@ -3,7 +3,9 @@
  * direction (inbound/outbound), progress and ETA, and gives the map smooth positions.
  */
 (function () {
-  const POLL_MS = 4000, OFFLINE_S = 60, STOP_R = 60, MOVING = 1.0; // m/s
+  // Free-tier friendly: positions arrive every ~10 s and the app polls every 8 s; between updates the bus is
+  // moved along its route at its last known speed (dead reckoning), so it still looks live.
+  const POLL_MS = 8000, PREDICT_MAX_S = 25, OFFLINE_S = 60, STOP_R = 60, MOVING = 1.0; // m/s
   const rad = Math.PI / 180;
   let lat0 = 23.8882, lng0 = 90.3906, kx = 111320 * Math.cos(lat0 * rad), ky = 110574;
   const xy = (lng, lat) => [(lng - lng0) * kx, (lat - lat0) * ky];
@@ -145,7 +147,15 @@
         let status = this._status(st), tLng, tLat, tHead;
         const est = status === 'offline' ? this._estimate(st) : null;
         if (est) { status = 'estimated'; tLng = est.lng; tLat = est.lat; tHead = est.heading; }
-        else if (st.fix) { tLng = st.fix.tLng; tLat = st.fix.tLat; tHead = st.fix.tHead; }
+        else if (st.fix) {
+          tLng = st.fix.tLng; tLat = st.fix.tLat; tHead = st.fix.tHead;
+          // dead reckoning: keep a moving bus moving along its route between updates
+          const f = st.fix, age = Math.min(PREDICT_MAX_S, this._age(st));
+          if (st.r && status === 'running' && f.speed > MOVING && f.off < 50) {
+            const p = pointAt(st.r, f.s + st.dir * f.speed * age);
+            tLng = p.lng; tLat = p.lat; tHead = st.dir > 0 ? p.bearing : (p.bearing + 180) % 360;
+          }
+        }
         else return;
         if (!st.disp) st.disp = { lng: tLng, lat: tLat, heading: tHead };
         const d = st.disp;

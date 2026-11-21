@@ -66,6 +66,14 @@ Test locally: `npm run dev`, then `node scripts/simulate-crowd.js` (five simulat
   dashboard, Bangladesh time, about 22 km/h along the route). It is clearly labelled **Estimated** with `~` on times and a note,
   and any live signal (bus phone or rider) replaces it immediately.
 
+## Free-tier budget
+Everything runs on free plans (Vercel Hobby, Turso free). To stay inside Vercel's ~1M requests/month:
+bus phones and riders send a position every **10 s**, the app polls every **8 s** (only while it is open and visible),
+and between updates the app moves each bus along its route at its last speed (dead reckoning), so it still looks live.
+Rough cost: one bus phone ≈ 360 requests/hour; one student with the app open ≈ 450 requests/hour.
+A pilot (a few bus phones, a few hundred students a day) fits; the whole university at once needs a bigger plan or a free
+always-on server (e.g. Oracle Cloud Always Free).
+
 ## Login protection
 5 wrong passwords on one account lock it for 5 minutes (the wait doubles on further failures, max 60 min); 20 failures from one IP lock that IP the same way. A correct login resets the counter.
 

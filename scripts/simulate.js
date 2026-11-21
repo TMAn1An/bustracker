@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 const BASE = process.argv[2] || 'http://localhost:3000';
 const tokens = JSON.parse(readFileSync('.bus-tokens.json'));
-const SPEEDUP = 6, TICK = 3000;
+const SPEEDUP = 1, TICK = 10000; // like a real bus phone: real speed, one fix every 10 s
 
 const login = await (await fetch(BASE + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: '2025001', password: 'demo1234' }) })).json();
 const cfg = await (await fetch(BASE + '/api/routes', { headers: { Authorization: 'Bearer ' + login.token } })).json();

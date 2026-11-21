@@ -3,7 +3,7 @@
  * The server verifies every fix (on the route, moving like a vehicle, no jumps) before it is shown to others.
  */
 (function () {
-  const SEND_MS = 4000;
+  const SEND_MS = 10000; // every 10 s: enough for the map (the app fills the gaps) and kind to the free hosting quota
   const Share = {
     busId: null, status: null, message: '', error: null, onChange: () => {},
     watch: null, wake: null, pending: null, lastPos: null, timer: null, last: 0, token: null,
