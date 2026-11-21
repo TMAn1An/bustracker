@@ -1,5 +1,5 @@
 # Cloudflare Workers (free plan): static app + /api/* in one Worker.
-name = "iubat-bustracker"
+name = "bustracker"   # must match the Worker name in the Cloudflare dashboard (Workers Builds)
 main = "worker.js"
 compatibility_date = "2025-06-01"
 compatibility_flags = ["nodejs_compat"]
