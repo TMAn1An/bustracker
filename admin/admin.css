@@ -103,3 +103,38 @@ small.also:empty { display: none; }
 .also-route { margin: 0; color: var(--ink-2); font-weight: 600; }
 .also-route:empty { display: none; }
 #routeList small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90px; }
+
+/* ---------- Phone: ☰ menu and bus cards ---------- */
+.menu-btn { display: none; }
+@media (max-width: 760px) {
+  .topbar { position: sticky; top: 0; }
+  .brand small { display: none; }
+  .menu-btn { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; border: 1px solid rgba(255,255,255,.4); background: rgba(255,255,255,.1); color: #fff; border-radius: 9px; padding: 7px 12px; font-weight: 600; font-size: 14px; }
+  #topMenu { display: none; position: absolute; top: 100%; left: 0; right: 0; background: #fff; flex-direction: column; align-items: stretch; gap: 0; padding: 8px; box-shadow: 0 12px 28px rgba(16,24,20,.18); border-bottom: 1px solid var(--line); }
+  #topMenu.open { display: flex; }
+  #topMenu .tabs { flex-direction: column; background: none; padding: 0; gap: 2px; }
+  #topMenu .tabs button { color: var(--ink); text-align: left; padding: 12px 14px; font-size: 16px; border-radius: 8px; }
+  #topMenu .tabs button[aria-selected="true"] { background: var(--green-50); color: var(--green); }
+  #topMenu .ghost.light { color: #b42318; border: 0; text-align: left; padding: 12px 14px; font-size: 16px; margin-top: 4px; border-top: 1px solid var(--line); border-radius: 0; }
+  .a-page { padding: 18px 14px 40px; }
+  .a-inline { width: 100%; } .a-inline input, .a-inline .a-sel, .a-inline select { flex: 1 1 140px; min-width: 0; width: 100%; }
+  /* bus table -> one card per bus */
+  #tab-buses .a-table thead { display: none; }
+  #tab-buses .a-table, #tab-buses .a-table tbody, #tab-buses .a-table tr, #tab-buses .a-table td { display: block; width: 100%; }
+  #tab-buses .a-table tr { padding: 12px 14px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+  #tab-buses .a-table td { padding: 0; border: 0; }
+  #tab-buses .a-table td::before { content: attr(data-label); display: block; font-size: 11.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+  #tab-buses .a-table td[data-label="Route"], #tab-buses .a-table td.r { grid-column: 1 / -1; }
+  #tab-buses .a-table td input, #tab-buses .a-table td select { width: 100%; min-width: 0; }
+  #tab-buses .a-table td.r { text-align: left; display: flex; gap: 8px; flex-wrap: wrap; }
+  #tab-buses .a-table td.r > * { margin: 0; }
+  #tab-buses .a-table-wrap { overflow: visible; }
+}
+@media (max-width: 760px) {
+  /* add-bus form: one field per line, natural heights */
+  .a-inline { display: grid; grid-template-columns: 1fr; gap: 8px; align-items: start; }
+  .a-inline > *, .a-inline .a-sel select { width: 100%; height: auto; }
+  .a-inline .btn { justify-self: start; }
+  #tab-buses .a-table td.r::before { display: none; }
+}
+@media (max-width: 760px) { .a-inline .a-sel { display: flex; } .a-inline .a-sel select { flex: none; } }

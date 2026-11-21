@@ -41,9 +41,19 @@
   }
 
   /* ---------- tabs ---------- */
+  // Phone: the sections and Sign out live in a menu behind the ☰ button
+  function toggleMenu(open) {
+    const m = $('#topMenu'), on = open ?? !m.classList.contains('open');
+    m.classList.toggle('open', on); $('#menuBtn').setAttribute('aria-expanded', on);
+  }
+  $('#menuBtn').addEventListener('click', () => toggleMenu());
+  document.addEventListener('click', e => { if (!e.target.closest('#topMenu, #menuBtn')) toggleMenu(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') toggleMenu(false); });
+
   document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => {
     document.querySelectorAll('[data-tab]').forEach(x => x.setAttribute('aria-selected', x === b));
     ['buses', 'routes', 'notices', 'sharing'].forEach(t => { $('#tab-' + t).hidden = b.dataset.tab !== t; });
+    $('#menuLabel').textContent = b.textContent; toggleMenu(false); // phone: show the current section, close the menu
     if (b.dataset.tab === 'routes') { initMap().then(() => { map.resize(); drawRoute(); }); }
   }));
 
@@ -58,12 +68,12 @@
     $('#busRows').innerHTML = S.buses.map(b => {
       const seen = ago(b.lastSeen), live = b.lastSeen && S.now - b.lastSeen < 60000;
       return `<tr data-id="${esc(b.id)}">
-        <td><input class="no" value="${esc(b.id)}" maxlength="10" aria-label="Bus number"></td>
-        <td><select class="rt" aria-label="Route">${routeOpts(b.routeId)}</select><small class="also">${esc(alsoText(b.routeId, b.id))}</small></td>
-        <td><input class="tm ds" type="time" value="${esc(b.departStart || '')}" aria-label="Leaves start"></td>
-        <td><input class="tm dc" type="time" value="${esc(b.departCampus || '')}" aria-label="Leaves campus"></td>
-        <td><input class="dy" list="dayPresets" value="${esc(b.days || '')}" maxlength="30" placeholder="Sat–Wed" aria-label="Days"></td>
-        <td><span class="seen ${live ? 'on' : ''}"><i></i>${seen ? seen : 'Never'}</span></td>
+        <td data-label="Bus no."><input class="no" value="${esc(b.id)}" maxlength="10" aria-label="Bus number"></td>
+        <td data-label="Route"><select class="rt" aria-label="Route">${routeOpts(b.routeId)}</select><small class="also">${esc(alsoText(b.routeId, b.id))}</small></td>
+        <td data-label="Leaves start"><input class="tm ds" type="time" value="${esc(b.departStart || '')}" aria-label="Leaves start"></td>
+        <td data-label="Leaves campus"><input class="tm dc" type="time" value="${esc(b.departCampus || '')}" aria-label="Leaves campus"></td>
+        <td data-label="Days"><input class="dy" list="dayPresets" value="${esc(b.days || '')}" maxlength="30" placeholder="Sat–Wed" aria-label="Days"></td>
+        <td data-label="Last seen"><span class="seen ${live ? 'on' : ''}"><i></i>${seen ? seen : 'Never'}</span></td>
         <td class="r"><button class="btn ghost-btn sm save" hidden>Save</button><button class="btn ghost-btn sm tok">New token</button><button class="btn ghost-btn sm danger del">Delete</button></td></tr>`;
     }).join('');
   }

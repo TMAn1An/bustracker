@@ -29,7 +29,11 @@
 <div id="adminApp" hidden>
   <header class="topbar">
     <div class="brand"><img src="../assets/logo.png" alt=""><div><strong>IUBAT Bus Tracker</strong><small>Admin dashboard</small></div></div>
-    <div class="top-right">
+    <button class="menu-btn" id="menuBtn" aria-label="Menu" aria-expanded="false" aria-controls="topMenu">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      <span id="menuLabel">Buses</span>
+    </button>
+    <div class="top-right" id="topMenu">
       <nav class="tabs" role="tablist">
         <button role="tab" data-tab="buses" aria-selected="true">Buses</button>
         <button role="tab" data-tab="routes" aria-selected="false">Routes</button>

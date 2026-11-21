@@ -94,7 +94,9 @@
       const x = e.target.closest('[data-dismiss]'); if (x) { markSeen([+x.dataset.dismiss]); renderNotices(); }
     });
     $('#bell').addEventListener('click', () => go(view.name === 'notices' ? { name: 'routes' } : { name: 'notices' }));
-    $('#handle').addEventListener('click', () => { $('#panel').classList.toggle('open'); pad(); });
+    // Phone: the route list starts open under a smaller map; one tap switches between "map" and "routes".
+    $('#handle').addEventListener('click', () => setSheet(!$('#panel').classList.contains('open')));
+    setSheet(true);
     addEventListener('resize', pad); pad();
 
     const tView = $('#tView');
@@ -130,7 +132,7 @@
     const prev = view; view = v;
     if (v.name === 'routes' && prev.name === 'route') map.select(null);
     if (v.name === 'notices') { markSeen(Feed.activeNotices().map(n => n.id)); }
-    if (isMobile()) { $('#panel').classList.toggle('open', v.name !== 'routes'); pad(); }
+    if (isMobile()) setSheet(true); // any navigation shows its content in the sheet
     render(); $('#panelBody').scrollTop = 0;
   }
   function busesOn(routeId) { return snap.filter(b => b.routeId === routeId); }
@@ -153,9 +155,15 @@
   }
 
   // On mobile the bottom sheet covers the lower part of the map: shift the camera centre up
+  function setSheet(open) {
+    $('#panel').classList.toggle('open', open);
+    $('#handle').setAttribute('aria-expanded', open);
+    $('#handleLabel').textContent = open ? 'Show map' : (view.name === 'route' ? 'Show bus details' : 'Show routes');
+    pad();
+  }
   function pad() {
     if (!map) return;
-    map.setPadding(!isMobile() ? 0 : ($('#panel').classList.contains('open') ? innerHeight * 0.62 : 124));
+    map.setPadding(!isMobile() ? 0 : ($('#panel').classList.contains('open') ? innerHeight * 0.62 : 64));
   }
 
   function refresh() { snap = Feed.snapshot(); render(); }

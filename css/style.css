@@ -227,10 +227,14 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
   .conn { top: 10px; }
 
   .panel { position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; border-right: 0; border-radius: 18px 18px 0 0; box-shadow: 0 -6px 28px rgba(16, 24, 20, .16);
-    height: 62vh; transform: translateY(calc(62vh - 124px)); transition: transform .3s cubic-bezier(.2, .8, .2, 1); padding-bottom: env(safe-area-inset-bottom); }
+    height: 62vh; transform: translateY(calc(62vh - 64px)); transition: transform .3s cubic-bezier(.2, .8, .2, 1); padding-bottom: env(safe-area-inset-bottom); }
   .panel.open { transform: none; }
-  .handle { display: block; width: 100%; background: none; border: 0; padding: 9px 0 0; flex: none; }
-  .handle span { display: block; width: 36px; height: 4px; border-radius: 9px; background: #d3d9d1; margin: 0 auto; }
+  /* a clear, labelled toggle instead of a drag handle: tap to switch between the map and the list */
+  .handle { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 100%; background: none; border: 0; padding: 8px 0 6px; flex: none; cursor: pointer; }
+  .handle .grip { display: block; width: 36px; height: 4px; border-radius: 9px; background: #d3d9d1; }
+  .handle b { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--green); background: var(--green-50); border: 1px solid var(--green-100); padding: 5px 14px; border-radius: 999px; }
+  .handle b::before { content: ""; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg) translate(-1px, -1px); }
+  .panel:not(.open) .handle b::before { transform: rotate(-135deg) translate(-1px, -1px); }
   .chips { padding-top: 10px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
