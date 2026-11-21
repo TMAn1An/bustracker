@@ -77,7 +77,19 @@ always-on server (e.g. Oracle Cloud Always Free).
 ## Login protection
 5 wrong passwords on one account lock it for 5 minutes (the wait doubles on further failures, max 60 min); 20 failures from one IP lock that IP the same way. A correct login resets the counter.
 
-## Production (Vercel + Turso)
+## Production (Cloudflare Workers + Turso, free plans)
+Live: https://bustracker.iubat.workers.dev (admin: `/admin/`, bus phone: `/tracker/`).
+The Cloudflare Worker `bustracker` is connected to this GitHub repo (Workers Builds): every push deploys automatically.
+`worker.js` adapts the same `api/*` handlers; static files are served as Workers Static Assets (`.assetsignore` keeps code and
+config private, `_headers` sets security/cache headers). Worker secrets: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `SESSION_SECRET`.
+Cloudflare's free plan allows 100,000 API requests/day (static files are unlimited) and about 10 ms CPU per request,
+which is why passwords use PBKDF2 (older scrypt hashes are still accepted).
+Local Worker test: put the three secrets in `.dev.vars` (git-ignored) and run `npx wrangler dev`.
+
+## Also on Vercel (same code, same database)
+The original deployment (https://iubat-bustracker.vercel.app) still works from the same repo.
+
+## Production setup details
 The Vercel project is connected to this GitHub repo: every push to `ccr-31ad4227-axu7x6` deploys to production automatically.
 
 Env vars: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `SESSION_SECRET` (long random string).
