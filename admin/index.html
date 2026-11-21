@@ -72,7 +72,10 @@
           <label class="field grow"><span>Route name</span><input id="rName" maxlength="60" placeholder="e.g. Rajendrapur"></label>
           <label class="field"><span>Line colour</span><input id="rColor" type="color" value="#0b6e1c"></label>
         </div>
-        <p class="muted small">Add stops in driving order, starting from the far end. Click the map to drop a stop, drag a marker to move it. The route always ends at IUBAT Campus.</p>
+        <p class="muted small">Stops go in driving order, starting from the far end; the route always ends at IUBAT Campus.
+          Add them by <b>clicking the map</b>, by <b>searching</b> a place, or paste the whole list with <b>Add stops in bulk</b>. Drag a marker to fix its position.</p>
+        <div class="a-row"><button class="btn ghost-btn sm" id="bulkBtn" type="button">Add stops in bulk</button><span id="placing" class="small st-wait" hidden></span></div>
+        <div class="a-stops-head small muted"><span></span><span>Stop</span><span>Pick-up time</span><span></span></div>
         <ol id="stopList" class="a-stops"></ol>
         <div class="a-row end">
           <button class="btn ghost-btn" id="delRoute" type="button">Delete route</button>
@@ -120,6 +123,19 @@
 </div>
 
 <!-- Notices tab is inside #adminApp; see below -->
+<!-- Bulk stops dialog -->
+<dialog id="bulkDlg" class="a-dlg">
+  <form method="dialog">
+    <h3>Add stops in bulk</h3>
+    <p class="muted small">One stop per line, in driving order (far end first). A pick-up time at the end is optional. Don't include Campus; it is added automatically.
+      Each stop is then looked up on OpenStreetMap near this route. Check every marker; anything not found is marked and can be placed by clicking the map.</p>
+    <textarea id="bulkText" rows="10" placeholder="Rajendrapur Pepsi Gate 6:30 AM
+BIPSOT 6:32 AM
+Public School 6:33 AM"></textarea>
+    <div class="a-row end"><button value="no" class="btn ghost-btn">Cancel</button><button value="yes" class="btn primary">Add &amp; locate</button></div>
+  </form>
+</dialog>
+
 <!-- Token dialog -->
 <dialog id="tokDlg" class="a-dlg">
   <form method="dialog">

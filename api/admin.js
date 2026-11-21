@@ -8,11 +8,14 @@ const time = (v, label) => { v = String(v || '').trim(); if (v && !TIME.test(v))
 const newToken = () => randomBytes(18).toString('base64url');
 
 function cleanStops(list) {
-  if (!Array.isArray(list) || list.length < 1 || list.length > 60) throw new Error('A route needs at least one stop (the starting point).');
+  if (!Array.isArray(list) || list.length < 1 || list.length > 80) throw new Error('A route needs at least one stop (the starting point).');
   return list.map((s, i) => {
     const lat = num(s.lat, -90, 90), lng = num(s.lng, -180, 180), name = String(s.name || '').trim().slice(0, 60);
-    if (lat === null || lng === null || !name) throw new Error(`Stop ${i + 1} needs a name and a location.`);
-    return { name, lat: +lat.toFixed(6), lng: +lng.toFixed(6) };
+    if (!name) throw new Error(`Stop ${i + 1} needs a name.`);
+    if (lat === null || lng === null) throw new Error(`Stop ${i + 1} "${name}" has no location yet. Use Place and click the map.`);
+    const stop = { name, lat: +lat.toFixed(6), lng: +lng.toFixed(6) };
+    if (s.time) stop.time = time(s.time, `Stop ${i + 1} pick-up time`);   // optional "HH:MM" pick-up time
+    return stop;
   });
 }
 
@@ -48,7 +51,12 @@ const actions = {
     await db().execute({ sql: `INSERT INTO routes (id,name,color,stops,geometry,updated_at) VALUES (?,?,?,?,?,?)
       ON CONFLICT(id) DO UPDATE SET name=excluded.name, color=excluded.color, stops=excluded.stops, geometry=excluded.geometry, updated_at=excluded.updated_at`,
       args: [id, name, color, JSON.stringify(stops), JSON.stringify(g.geometry), Date.now()] });
-    return { id, snapped: g.snapped, km: g.km };
+    // Sanity check: a road route much longer than the straight line usually means a stop is misplaced or out of order.
+    const pts = [...stops, CAMPUS]; let direct = 0;
+    for (let i = 1; i < pts.length; i++) direct += Math.hypot((pts[i].lat - pts[i - 1].lat) * 111, (pts[i].lng - pts[i - 1].lng) * 102);
+    const ends = Math.hypot((pts[0].lat - CAMPUS.lat) * 111, (pts[0].lng - CAMPUS.lng) * 102);
+    const warn = g.km && ends > 0.5 && g.km > ends * 2.5 ? `The route is ${g.km.toFixed(0)} km by road but the start is only ${ends.toFixed(0)} km from campus. A stop may be in the wrong place or order.` : null;
+    return { id, snapped: g.snapped, km: g.km, warn };
   },
   async deleteRoute({ id }) {
     await db().execute({ sql: 'UPDATE buses SET route_id = NULL WHERE route_id = ?', args: [id] });

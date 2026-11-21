@@ -35,7 +35,13 @@ so the app does not depend on third-party CDNs (only map tiles and fonts are ext
 | `/tracker/` | Lightweight page for the bus phone (geolocation + wake lock). Or use the **Traccar Client** app: Server URL `https://<site>/api/osmand`, device identifier = bus token |
 
 ## Admin: how to set up a bus
-1. **Routes → New route**: name it, search/click the map to add stops *in driving order from the far end*; the route always ends at IUBAT Campus. Save.
+1. **Routes → New route** (or pick a route): add stops *in driving order from the far end*; the route always ends at IUBAT Campus.
+   - **Add stops in bulk**: paste the stop list from the schedule sheet, one per line, with an optional pick-up time
+     (e.g. `BIPSOT 6:32 AM`). Each stop is looked up on OpenStreetMap near the route (spelling variants are tried); found stops are
+     marked **Check**, unfound ones **No location**: press 📍 **Place** and click the map. Drag any marker to correct it.
+   - Or click the map, or search a place and press **Add as stop**.
+   - Pick-up times are shown to students and make the "Estimated" position follow the real timetable stop by stop.
+   - On save the route is snapped to roads; if it is implausibly long you get a warning (a stop is probably misplaced or out of order).
 2. **Buses → Add bus**: enter the bus number, pick the route. A **tracker token** is shown once; open the link on the bus phone.
 3. Changing a bus number or route in the table takes effect in student apps within a few seconds (no reload).
 

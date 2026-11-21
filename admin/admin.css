@@ -81,3 +81,18 @@ textarea { font: inherit; font-size: 15px; padding: 10px 12px; border: 1px solid
 .switch input:checked + span { background: var(--green); } .switch input:checked + span::after { transform: translateX(18px); }
 .switch input:focus-visible + span { outline: 2px solid var(--green); outline-offset: 2px; }
 .st-ok { color: #12803a; } .st-wait { color: #8a5f00; } .st-bad { color: #b42318; }
+.a-stops-head { display: grid; grid-template-columns: 28px 1fr 118px auto; gap: 8px; padding: 0 0 2px; }
+.a-stops li { grid-template-columns: 28px 1fr 118px auto; }
+.a-stops li.campus { grid-template-columns: 28px 1fr 118px auto; }
+.a-stops li.placing { background: #fff8e6; border-radius: 8px; outline: 1px solid #f3dc9b; }
+.a-stops .nm-wrap { position: relative; display: flex; align-items: center; min-width: 0; }
+.a-stops .nm-wrap input { width: 100%; }
+.a-stops input.tm { width: 118px; font-weight: 500; }
+.a-stops .flag { position: absolute; right: 8px; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 5px; pointer-events: none; }
+.a-stops .flag.bad { background: #fef3f2; color: #b42318; } .a-stops .flag.wait { background: #fff4c4; color: #7a5a00; }
+.a-stops .n.auto { background: #d99a00; } .a-stops .n.miss { background: #fff; color: #b42318; border: 2px dashed #b42318; }
+.a-pin.auto { background: #d99a00; }
+.a-pop { display: flex; flex-direction: column; gap: 8px; font: 13px/1.4 var(--font); }
+.a-pop .btn { white-space: normal; }
+#bulkText { font-size: 14px; }
+@media (max-width: 860px) { .a-stops li, .a-stops-head { grid-template-columns: 26px 1fr 96px; } .a-stops .act { grid-column: 2 / -1; } .a-stops input.tm { width: 96px; } }

@@ -164,7 +164,7 @@
   });
 
   function edit(route, fit) {
-    E = route; dirty = false;
+    E = route; dirty = false; placing = null; $('#placing').hidden = true;
     $('#routeForm').hidden = false; $('#routeHint').hidden = true;
     $('#rName').value = E.name; $('#rColor').value = E.color; $('#delRoute').hidden = !E.id; $('#rMsg').textContent = '';
     renderStops(); renderRouteList();
@@ -173,31 +173,130 @@
   $('#rName').addEventListener('input', e => { E.name = e.target.value; dirty = true; });
   $('#rColor').addEventListener('input', e => { E.color = e.target.value; dirty = true; drawRoute(); });
 
+  let placing = null; // index of the stop waiting for a map click
+  function setPlacing(i) {
+    placing = i;
+    const el = $('#placing');
+    el.hidden = i === null; if (i !== null) el.textContent = `Click the map to place stop ${i + 1} "${E.stops[i].name}"`;
+    if (map) map.getCanvas().style.cursor = i === null ? '' : 'crosshair';
+  }
+  const hasPos = s => s.lat != null && s.lng != null;
   function renderStops() {
     const n = E.stops.length;
-    $('#stopList').innerHTML = E.stops.map((s, i) => `<li data-i="${i}">
-        <span class="n">${i + 1}</span><input value="${esc(s.name)}" maxlength="60" aria-label="Stop ${i + 1} name">
-        <span class="act"><button data-a="focus" title="Show on map" aria-label="Show on map">&#9678;</button><button data-a="up" ${i === 0 ? 'disabled' : ''} aria-label="Move up">&uarr;</button><button data-a="down" ${i === n - 1 ? 'disabled' : ''} aria-label="Move down">&darr;</button><button data-a="del" aria-label="Delete stop">&times;</button></span></li>`).join('')
-      + `<li class="campus"><span class="n">${n + 1}</span><input value="IUBAT Campus (fixed end point)" disabled aria-label="Campus"><span class="act"></span></li>`;
-    if (!n) $('#stopList').insertAdjacentHTML('afterbegin', '<li class="muted small" style="grid-template-columns:1fr">No stops yet — click the map to add the starting point.</li>');
+    $('#stopList').innerHTML = E.stops.map((s, i) => {
+      const flag = !hasPos(s) ? '<span class="flag bad" title="Not on the map yet">No location</span>' : s.auto ? '<span class="flag wait" title="Found automatically: check the marker">Check</span>' : '';
+      return `<li data-i="${i}" class="${placing === i ? 'placing' : ''}">
+        <span class="n ${!hasPos(s) ? 'miss' : s.auto ? 'auto' : ''}">${i + 1}</span>
+        <span class="nm-wrap"><input class="nm" value="${esc(s.name)}" maxlength="60" aria-label="Stop ${i + 1} name">${flag}</span>
+        <input class="tm" type="time" value="${esc(s.time || '')}" aria-label="Stop ${i + 1} pick-up time">
+        <span class="act"><button data-a="place" title="Place on map" aria-label="Place on map">&#128205;</button><button data-a="focus" title="Show on map" aria-label="Show on map" ${hasPos(s) ? '' : 'disabled'}>&#9678;</button><button data-a="up" ${i === 0 ? 'disabled' : ''} aria-label="Move up">&uarr;</button><button data-a="down" ${i === n - 1 ? 'disabled' : ''} aria-label="Move down">&darr;</button><button data-a="del" aria-label="Delete stop">&times;</button></span></li>`;
+    }).join('')
+      + `<li class="campus"><span class="n">${n + 1}</span><span class="nm-wrap"><input value="IUBAT Campus (fixed end point)" disabled aria-label="Campus"></span><span></span><span class="act"></span></li>`;
+    if (!n) $('#stopList').insertAdjacentHTML('afterbegin', '<li class="muted small" style="display:block">No stops yet. Click the map, search a place, or use Add stops in bulk.</li>');
   }
-  $('#stopList').addEventListener('input', e => { const li = e.target.closest('li[data-i]'); if (li) { E.stops[+li.dataset.i].name = e.target.value; dirty = true; } });
+  $('#stopList').addEventListener('input', e => {
+    const li = e.target.closest('li[data-i]'); if (!li) return;
+    const st = E.stops[+li.dataset.i];
+    if (e.target.classList.contains('nm')) st.name = e.target.value; else if (e.target.classList.contains('tm')) st.time = e.target.value;
+    dirty = true;
+  });
   $('#stopList').addEventListener('click', e => {
     const b = e.target.closest('button[data-a]'); if (!b) return;
     const i = +b.closest('li').dataset.i, a = b.dataset.a;
+    if (a === 'place') {
+      setPlacing(placing === i ? null : i); renderStops();
+      if (placing !== null) $('.a-mapbox').scrollIntoView({ behavior: 'smooth', block: 'center' }); // the map is below a long stop list
+      return;
+    }
+    if (a === 'focus') { $('.a-mapbox').scrollIntoView({ behavior: 'smooth', block: 'center' }); map.flyTo({ center: [E.stops[i].lng, E.stops[i].lat], zoom: 15.5 }); return; }
     if (a === 'del') E.stops.splice(i, 1);
     else if (a === 'up') [E.stops[i - 1], E.stops[i]] = [E.stops[i], E.stops[i - 1]];
     else if (a === 'down') [E.stops[i + 1], E.stops[i]] = [E.stops[i], E.stops[i + 1]];
-    else if (a === 'focus') { map.flyTo({ center: [E.stops[i].lng, E.stops[i].lat], zoom: 15 }); return; }
-    dirty = true; renderStops(); drawRoute();
+    setPlacing(null); dirty = true; renderStops(); drawRoute();
+  });
+
+  /* ---- bulk add: paste the stop list, then look each stop up near the route ---- */
+  function parseStops(text) {
+    const out = [];
+    for (let line of text.split(/\r?\n/)) {
+      line = line.replace(/^\s*\d{1,3}[.)\-\s]+(?=\D)/, '').trim();   // drop a leading serial number like "01" or "1."
+      if (!line) continue;
+      let time = '';
+      const m = line.match(/[\s,|\-–]*(\d{1,2})[:.](\d{2})\s*([ap])\.?\s*m\.?\s*$/i) || line.match(/[\s,|\-–]*(\d{1,2})[:.](\d{2})\s*$/);
+      if (m) {
+        let h = +m[1]; const mi = +m[2], ap = (m[3] || '').toLowerCase();
+        if (ap === 'p' && h < 12) h += 12; if (ap === 'a' && h === 12) h = 0;
+        if (h < 24 && mi < 60) { time = String(h).padStart(2, '0') + ':' + String(mi).padStart(2, '0'); line = line.slice(0, m.index).trim(); }
+      }
+      line = line.replace(/[\s,|\-–]+$/, '');
+      if (!line || /^(iubat\s*)?campus$/i.test(line)) continue;    // campus is the fixed end point
+      out.push({ name: line.slice(0, 60), time, lat: null, lng: null });
+    }
+    return out;
+  }
+  function searchBox() {
+    const saved = E.id && S.routes.find(r => r.id === E.id);
+    const pts = [[S.campus.lng, S.campus.lat], ...E.stops.filter(hasPos).map(s => [s.lng, s.lat]), ...(saved ? saved.geometry : [])];
+    let [w, so, e, n] = [180, 90, -180, -90];
+    for (const [x, y] of pts) { w = Math.min(w, x); e = Math.max(e, x); so = Math.min(so, y); n = Math.max(n, y); }
+    const pad = pts.length > 2 ? 0.04 : 0.35; // only the campus known: search a wide area around it
+    return [w - pad, n + pad, e + pad, so - pad].map(v => v.toFixed(4)).join(',');
+  }
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  // Common Bangla-English spelling variants seen in stop names, to give OpenStreetMap search a better chance.
+  const SPELL = [[/chowr?astha|chourastha|chourasta|chorasta|chowrasta/gi, 'Chowrasta'], [/purabari/gi, 'Porabari'], [/\bmor\b/gi, 'More'],
+    [/bazaar/gi, 'Bazar'], [/\bbr?idge\b/gi, 'Bridge'], [/\s*&\s*/g, ' and ']];
+  function variants(name) {
+    const out = [name];
+    let v = name; for (const [re, to] of SPELL) v = v.replace(re, to);
+    if (v !== name) out.push(v);
+    const short = v.replace(/\s+(bridge|more|bus stop|stand|stoppage)$/i, '').trim();  // "Salna Bridge" -> "Salna" (area)
+    if (short !== v && short.length >= 4) out.push(short);
+    return out;
+  }
+  async function geocode(name, box) {
+    for (const q of variants(name)) {
+      const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=bd&bounded=1&viewbox=' + box + '&q=' + encodeURIComponent(q));
+      const j = await r.json();
+      if (j[0]) return { lat: +(+j[0].lat).toFixed(6), lng: +(+j[0].lon).toFixed(6) };
+      await sleep(1100); // about one request per second (OpenStreetMap search policy)
+    }
+    return null;
+  }
+  async function locateMissing() {
+    const todo = E.stops.filter(s => !hasPos(s));
+    if (!todo.length) return;
+    const box = searchBox(); let found = 0;
+    for (let k = 0; k < todo.length; k++) {
+      $('#rMsg').textContent = `Looking up stops on the map… ${k + 1} / ${todo.length}`;
+      try { const p = await geocode(todo[k].name, box); if (p) { Object.assign(todo[k], p, { auto: true }); found++; } } catch { /* leave it unplaced */ }
+      renderStops(); drawRoute();
+      await sleep(1100); // OpenStreetMap's search service allows about one request per second
+    }
+    const missing = todo.length - found;
+    $('#rMsg').textContent = `${found} of ${todo.length} stops found. ${missing ? `${missing} not found: use 📍 Place and click the map.` : ''} Check every marker, then Save.`;
+    fitRoute();
+  }
+  $('#bulkBtn').addEventListener('click', () => { $('#bulkText').value = ''; $('#bulkDlg').returnValue = ''; $('#bulkDlg').showModal(); });
+  $('#bulkDlg').addEventListener('close', async () => {
+    if ($('#bulkDlg').returnValue !== 'yes') return;
+    const list = parseStops($('#bulkText').value);
+    if (!list.length) return toast('No stops found in the text', true);
+    E.stops.push(...list); dirty = true; renderStops();
+    await initMap(); await locateMissing();
   });
 
   $('#saveRoute').addEventListener('click', async () => {
+    const miss = E.stops.findIndex(x => !hasPos(x));
+    if (miss >= 0) { toast(`Stop ${miss + 1} "${E.stops[miss].name}" has no location yet. Use 📍 Place and click the map.`, true); return; }
     const btn = $('#saveRoute'); btn.disabled = true; btn.textContent = 'Saving…'; $('#rMsg').textContent = '';
     try {
-      const j = await act('saveRoute', { route: { id: E.id, name: E.name, color: E.color, stops: E.stops } });
+      const stops = E.stops.map(({ name, lat, lng, time }) => ({ name, lat, lng, ...(time ? { time } : {}) }));
+      const j = await act('saveRoute', { route: { id: E.id, name: E.name, color: E.color, stops } });
+      E.stops.forEach(x => { delete x.auto; }); renderStops();
       E.id = j.id; dirty = false; $('#delRoute').hidden = false;
       $('#rMsg').textContent = j.snapped ? `Saved · ${j.km.toFixed(1)} km, snapped to roads` : 'Saved · road service unavailable, drawn as straight lines';
+      if (j.warn) { $('#rMsg').textContent += ' · Check: ' + j.warn; toast(j.warn, true); }
       toast('Route saved'); renderRouteList(); renderBuses(); drawRoute();
     } catch (x) { toast(x.message, true); }
     btn.disabled = false; btn.textContent = 'Save route';
@@ -226,6 +325,14 @@
     }));
     map.on('click', e => {
       if (!E) { toast('Select or create a route first'); return; }
+      if (placing !== null && E.stops[placing]) {
+        const done = placing;
+        Object.assign(E.stops[done], { lat: +e.lngLat.lat.toFixed(6), lng: +e.lngLat.lng.toFixed(6) }); delete E.stops[done].auto;
+        setPlacing(null); dirty = true; renderStops(); drawRoute();
+        toast(`Stop ${done + 1} placed. Drag the marker to adjust.`);
+        const row = $(`#stopList li[data-i="${done}"]`); if (row) setTimeout(() => row.scrollIntoView({ behavior: 'smooth', block: 'center' }), 600);
+        return;
+      }
       E.stops.push({ name: `Stop ${E.stops.length + 1}`, lat: +e.lngLat.lat.toFixed(6), lng: +e.lngLat.lng.toFixed(6) });
       dirty = true; renderStops(); drawRoute();
       const inp = $('#stopList li[data-i="' + (E.stops.length - 1) + '"] input'); if (inp) { inp.focus(); inp.select(); }
@@ -239,18 +346,19 @@
     markers.forEach(m => m.remove()); markers = [];
     if (!E) { map.getSource('draft').setData({ type: 'FeatureCollection', features: [] }); map.getSource('saved').setData({ type: 'FeatureCollection', features: [] }); return; }
     E.stops.forEach((s, i) => {
-      const m = new maplibregl.Marker({ element: pin(i + 1), draggable: true }).setLngLat([s.lng, s.lat]).addTo(map);
-      m.on('dragend', () => { const p = m.getLngLat(); s.lat = +p.lat.toFixed(6); s.lng = +p.lng.toFixed(6); dirty = true; drawRoute(); });
+      if (!hasPos(s)) return;
+      const m = new maplibregl.Marker({ element: pin(i + 1, s.auto ? 'auto' : ''), draggable: true }).setLngLat([s.lng, s.lat]).addTo(map);
+      m.on('dragend', () => { const p = m.getLngLat(); s.lat = +p.lat.toFixed(6); s.lng = +p.lng.toFixed(6); delete s.auto; dirty = true; renderStops(); drawRoute(); });
       markers.push(m);
     });
-    const pts = [...E.stops.map(s => [s.lng, s.lat]), [S.campus.lng, S.campus.lat]];
+    const pts = [...E.stops.filter(hasPos).map(s => [s.lng, s.lat]), [S.campus.lng, S.campus.lat]];
     const saved = E.id && S.routes.find(r => r.id === E.id);
     const showDraft = dirty || !saved; // unsaved edits: dashed straight preview; saved: solid road-snapped line
     map.getSource('draft').setData({ type: 'FeatureCollection', features: showDraft ? [{ type: 'Feature', properties: { color: E.color }, geometry: { type: 'LineString', coordinates: pts } }] : [] });
     map.getSource('saved').setData({ type: 'FeatureCollection', features: saved && !dirty ? [{ type: 'Feature', properties: { color: E.color }, geometry: { type: 'LineString', coordinates: saved.geometry } }] : [] });
   }
   function fitRoute() {
-    const pts = [...E.stops.map(s => [s.lng, s.lat]), [S.campus.lng, S.campus.lat]];
+    const pts = [...E.stops.filter(hasPos).map(s => [s.lng, s.lat]), [S.campus.lng, S.campus.lat]];
     const b = pts.reduce((bb, p) => bb.extend(p), new maplibregl.LngLatBounds(pts[0], pts[0]));
     map.fitBounds(b, { padding: 60, maxZoom: 15, duration: 600 });
   }
@@ -262,7 +370,13 @@
       const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=bd&q=' + encodeURIComponent(q));
       const j = await r.json();
       if (!j[0]) return toast('Place not found', true);
-      await initMap(); map.flyTo({ center: [+j[0].lon, +j[0].lat], zoom: 15.5 });
+      await initMap(); const at = [+j[0].lon, +j[0].lat]; map.flyTo({ center: at, zoom: 15.5 });
+      if (E) {
+        const box = document.createElement('div'); box.className = 'a-pop';
+        box.innerHTML = `<b>${esc(j[0].display_name.split(',').slice(0, 2).join(','))}</b><button class="btn primary sm">Add “${esc(q)}” as stop</button>`;
+        const pop = new maplibregl.Popup({ closeOnClick: true, maxWidth: '260px' }).setLngLat(at).setDOMContent(box).addTo(map);
+        box.querySelector('button').onclick = () => { E.stops.push({ name: q.slice(0, 60), lat: +at[1].toFixed(6), lng: +at[0].toFixed(6) }); dirty = true; renderStops(); drawRoute(); pop.remove(); toast('Stop added. Drag the marker if needed.'); };
+      }
     } catch { toast('Search failed. Try again.', true); }
   });
 

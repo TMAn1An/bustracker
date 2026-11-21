@@ -45,13 +45,20 @@
     r.cum = [0];
     for (let i = 1; i < r.xy.length; i++) r.cum.push(r.cum[i - 1] + Math.hypot(r.xy[i][0] - r.xy[i - 1][0], r.xy[i][1] - r.xy[i - 1][1]));
     r.length = r.cum[r.cum.length - 1];
-    r.stops.forEach(s => { s.s = project(r, ...xy(s.lng, s.lat)).s; });
-    r.stops.sort((a, b) => a.s - b.s);
+    // Keep the admin's driving order. Each stop is matched to the route at or after the previous stop,
+    // so roads that are driven twice (or loop back) do not shuffle the stops.
+    let minS = 0;
+    r.stops.forEach((st, i) => {
+      const last = i === r.stops.length - 1;
+      st.s = last ? r.length : project(r, ...xy(st.lng, st.lat), Math.max(0, minS - 30)).s;
+      minS = Math.max(minS, st.s);
+    });
   }
   // Project a point onto the nearest part of the route: { s (metres), dist, x, y, bearing }
-  function project(r, px, py) {
+  function project(r, px, py, minS = 0) {
     let best = { dist: Infinity };
     for (let i = 1; i < r.xy.length; i++) {
+      if (r.cum[i] < minS) continue; // only the part of the route at or after minS
       const [ax, ay] = r.xy[i - 1], [bx, by] = r.xy[i], dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
       const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2));
       const x = ax + dx * t, y = ay + dy * t, d = Math.hypot(px - x, py - y);
@@ -159,6 +166,23 @@
       const t = dhaka(now + this.offset), days = parseDays(sc.days);
       if (days && !days.has(t.day)) return null;
       const tripMin = (r.length / 1000) / EST_KMH * 60 + Math.max(0, r.stops.length - 2) * STOP_MIN;
+      // Inbound trip with pick-up times on the stops: follow the real timetable stop by stop.
+      const timed = r.stops.filter(x => hm(x.time) != null);
+      if (timed.length >= 2) {
+        const first = hm(timed[0].time), last = timed[timed.length - 1];
+        const lastT = hm(last.time), endT = lastT + ((r.length - last.s) / 1000) / EST_KMH * 60; // after the last timed stop: average speed
+        if (t.min >= first && t.min <= endT) {
+          let sPos;
+          if (t.min >= lastT) sPos = last.s + (r.length - last.s) * ((t.min - lastT) / Math.max(1, endT - lastT));
+          else for (let i = 1; i < timed.length; i++) {
+            const a = timed[i - 1], b = timed[i], ta = hm(a.time), tb = hm(b.time);
+            if (t.min <= tb) { sPos = a.s + (b.s - a.s) * (tb > ta ? (t.min - ta) / (tb - ta) : 1); break; }
+          }
+          const p = pointAt(r, sPos);
+          st.est = { s: sPos, dir: 1, v: EST_KMH / 3.6, lng: p.lng, lat: p.lat, heading: p.bearing, depart: timed[0].time, byStops: true };
+          return st.est;
+        }
+      }
       for (const [dep, dir] of [[hm(sc.departStart), 1], [hm(sc.departCampus), -1]]) {
         if (dep == null) continue;
         const el = t.min - dep;
@@ -193,9 +217,9 @@
       const travel = dir > 0 ? r.stops : r.stops.slice().reverse();
       const from = travel[0].name, to = travel[travel.length - 1].name;
       const base = { id: st.id, routeId: r.id, routeName: r.name, color: r.color, status: est ? 'estimated' : status, from, to,
-        toCampus: dir > 0, inbound: dir > 0, estimated: !!est, estDepart: est ? est.depart : null, speedKmh: 0, progress: 0, nextStop: null, destEta: 0, destEtaText: '—',
+        toCampus: dir > 0, inbound: dir > 0, estimated: !!est, estDepart: est ? est.depart : null, estByStops: !!(est && est.byStops), speedKmh: 0, progress: 0, nextStop: null, destEta: 0, destEtaText: '—',
         nextEtaText: '—', atStop: null, lastUpdateSec: null,
-        stops: travel.map(s => ({ name: s.name, state: 'upcoming', etaMin: 0 })) };
+        stops: travel.map(s => ({ name: s.name, state: 'upcoming', etaMin: 0, time: s.time || null })) };
       if (!f && !est) return { ...base, noData: true };
 
       const s = est ? est.s : f.s, age = this._age(st), approx = est ? '~' : '';
@@ -207,7 +231,7 @@
         let state = nextIdx === -1 || i < nextIdx ? 'passed' : i === nextIdx ? 'next' : 'upcoming';
         if (here === x) state = 'here';
         const eta = state === 'passed' || state === 'here' ? 0 : ahead(x) / v / 60 + Math.max(0, i - nextIdx) * 0.4;
-        return { name: x.name, state, etaMin: eta };
+        return { name: x.name, state, etaMin: eta, time: x.time || null };
       });
       const nextStop = nextIdx === -1 ? null : stops[nextIdx];
       const destEta = nextIdx === -1 ? 0 : stops[stops.length - 1].etaMin;

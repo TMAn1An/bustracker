@@ -283,7 +283,7 @@
     if (sched) html += `<div class="sched">${ICON_CLOCK}<span>${sched}</span></div>`;
     return html + busDetail(b, r);
   }
-  const stopsOnly = r => `<div class="section-title">Route stops</div><ol class="timeline">${r.stops.map(s => `<li class="upcoming"><i></i><div class="nm"><span>${esc(s.name)}</span></div></li>`).join('')}</ol>`;
+  const stopsOnly = r => `<div class="section-title">Route stops</div><ol class="timeline">${r.stops.map(s => `<li class="upcoming"><i></i><div class="nm"><span>${esc(s.name)}</span><span class="tm">${s.time ? t12(s.time) : ''}</span></div></li>`).join('')}</ol>`;
 
   function busDetail(b, r) {
     const head = `<div class="d-head"><span class="badge ${b.status}">${esc(b.id)}</span><div><h2>Bus ${esc(b.id)}</h2><span class="pill ${b.status}">${STATUS[b.status]}${b.atStop && b.status === 'stopped' ? ' · ' + esc(b.atStop) : ''}</span>${(b.noRoute || b.noData) ? '' : ` <span class="pill dir">${dirText(b)}</span>`}</div></div>`;
@@ -291,7 +291,7 @@
     if (b.noRoute) return head + `<p class="muted-p">No route assigned yet. Live position is shown on the map.</p>`;
     const off = b.status === 'offline', est = b.status === 'estimated';
     const next = off ? 'Offline' : (b.nextStop ? esc(b.nextStop.name) : 'Arrived');
-    const estNote = est ? `<div class="estnote"><b>No live signal right now.</b> This position is estimated from the timetable (left ${esc(short(b.from))} at ${t12(b.estDepart)}, assuming about 22 km/h). The real bus may be ahead or behind.</div>` : '';
+    const estNote = est ? `<div class="estnote"><b>No live signal right now.</b> This position is estimated from the timetable (left ${esc(short(b.from))} at ${t12(b.estDepart)}${b.estByStops ? ', following the stop pick-up times' : ', assuming about 22 km/h'}). The real bus may be ahead or behind.</div>` : '';
     return `${head}${estNote}
       <div class="journey">
         <div class="j-ends">
@@ -316,7 +316,7 @@
         ${b.stops.map(s => `
           <li class="${s.state}">
             <i></i>
-            <div class="nm"><span>${esc(s.name)}${s.state === 'here' ? ' <span class="tag">Here</span>' : ''}${s.state === 'next' ? ' <span class="tag">Next</span>' : ''}</span>
+            <div class="nm"><span>${esc(s.name)}${s.state === 'here' ? ' <span class="tag">Here</span>' : ''}${s.state === 'next' ? ' <span class="tag">Next</span>' : ''}${s.time && b.inbound ? `<small class="sched-t">${t12(s.time)}</small>` : ''}</span>
               <span class="tm">${s.state === 'passed' ? 'Passed' : s.state === 'here' ? 'Now' : off ? '' : fmt(s.etaMin)}</span></div>
           </li>`).join('')}
       </ol>`;
