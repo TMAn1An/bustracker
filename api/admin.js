@@ -52,11 +52,19 @@ const actions = {
     await db().execute({ sql: `INSERT INTO routes (id,name,color,stops,geometry,updated_at) VALUES (?,?,?,?,?,?)
       ON CONFLICT(id) DO UPDATE SET name=excluded.name, color=excluded.color, stops=excluded.stops, geometry=excluded.geometry, updated_at=excluded.updated_at`,
       args: [id, name, color, JSON.stringify(stops), JSON.stringify(g.geometry), Date.now()] });
-    // Sanity check: a road route much longer than the straight line usually means a stop is misplaced or out of order.
-    const pts = [...stops, CAMPUS]; let direct = 0;
-    for (let i = 1; i < pts.length; i++) direct += Math.hypot((pts[i].lat - pts[i - 1].lat) * 111, (pts[i].lng - pts[i - 1].lng) * 102);
-    const ends = Math.hypot((pts[0].lat - CAMPUS.lat) * 111, (pts[0].lng - CAMPUS.lng) * 102);
-    const warn = g.km && ends > 0.5 && g.km > ends * 2.5 ? `The route is ${g.km.toFixed(0)} km by road but the start is only ${ends.toFixed(0)} km from campus. A stop may be in the wrong place or order.` : null;
+    // Sanity check, leg by leg: if two neighbouring stops are far apart by road but close in a straight line,
+    // one of them is probably misplaced (off the road network) or the stops are out of order.
+    const pts = [...stops, CAMPUS]; let warn = null;
+    const dist = (a, b) => Math.hypot((a.lat - b.lat) * 111, (a.lng - b.lng) * 102);
+    // A stop that forces a big detour between its neighbours is probably misplaced.
+    for (let i = 1; i < pts.length - 1 && !warn; i++) {
+      const via = dist(pts[i - 1], pts[i]) + dist(pts[i], pts[i + 1]), straight = dist(pts[i - 1], pts[i + 1]);
+      if (via - straight > 5 && via > straight * 2.5) warn = `"${pts[i].name}" is far out of the way between "${pts[i - 1].name}" and "${pts[i + 1].name}". It may be in the wrong place or order.`;
+    }
+    (g.legsKm || []).forEach((km, i) => {
+      const a = pts[i], b = pts[i + 1], direct = Math.hypot((a.lat - b.lat) * 111, (a.lng - b.lng) * 102);
+      if (!warn && km > 3 && km > direct * 3) warn = `"${a.name}" to "${b.name}" is ${km.toFixed(1)} km by road but only ${direct.toFixed(1)} km apart. One of them may be in the wrong place or order.`;
+    });
     return { id, snapped: g.snapped, km: g.km, warn };
   },
   async deleteRoute({ id }) {

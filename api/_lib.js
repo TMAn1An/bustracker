@@ -87,7 +87,7 @@ export async function buildGeometry(stops) {
     const r = await fetch(url, { headers: { 'User-Agent': 'iubat-bus-tracker/0.3' }, signal: AbortSignal.timeout(10000) });
     const j = await r.json();
     const g = j.routes?.[0];
-    if (g) return { geometry: g.geometry.coordinates.map(([x, y]) => [+x.toFixed(6), +y.toFixed(6)]), km: g.distance / 1000, snapped: true };
+    if (g) return { geometry: g.geometry.coordinates.map(([x, y]) => [+x.toFixed(6), +y.toFixed(6)]), km: g.distance / 1000, snapped: true, legsKm: (g.legs || []).map(l => l.distance / 1000) };
   } catch { /* fall through */ }
   return { geometry: straight, km: null, snapped: false };
 }
