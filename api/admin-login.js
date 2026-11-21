@@ -1,7 +1,5 @@
-import { db, checkPassword, signSession, hashPassword, ensureSchema } from './_lib.js';
+import { db, checkPassword, signSession, dummyHash, ensureSchema } from './_lib.js';
 import { checkLock, recordFail, clearFails, ipOf, waitText } from './_ratelimit.js';
-
-const DUMMY = hashPassword('x');
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const { username, password } = req.body || {};
@@ -15,7 +13,7 @@ export default async function handler(req, res) {
   }
   const r = await db().execute({ sql: 'SELECT username, pass FROM admins WHERE username = ?', args: [String(username).trim()] });
   const u = r.rows[0];
-  const ok = checkPassword(String(password), u ? u.pass : DUMMY);
+  const ok = checkPassword(String(password), u ? u.pass : dummyHash());
   if (!u || !ok) {
     const f = await recordFail(acct, ip);
     if (f.retryAfter) {

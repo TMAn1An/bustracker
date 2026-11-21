@@ -1,6 +1,6 @@
 // Shared helpers: DB, tokens, password hashing. (A leading underscore keeps Vercel from exposing this as an endpoint.)
 import { createClient } from '@libsql/client';
-import { createHmac, randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypto';
+import { createHmac, randomBytes, scryptSync, pbkdf2Sync, timingSafeEqual, createHash } from 'node:crypto';
 
 let _db;
 export function db() {
@@ -93,22 +93,37 @@ export async function buildGeometry(stops) {
 }
 
 /* ---------- passwords ---------- */
+// New hashes: PBKDF2-SHA256. The iteration count is limited by Cloudflare's free plan (about 10 ms CPU per request);
+// online guessing is stopped by the login rate limit. Older scrypt hashes ("salt:hash") are still accepted.
+const PBKDF2_ITER = 30000;
 export function hashPassword(pw) {
   const salt = randomBytes(16);
-  return salt.toString('hex') + ':' + scryptSync(pw, salt, 32).toString('hex');
+  return `pbkdf2$${PBKDF2_ITER}$${salt.toString('hex')}$${pbkdf2Sync(String(pw), salt, PBKDF2_ITER, 32, 'sha256').toString('hex')}`;
 }
 export function checkPassword(pw, stored) {
-  const [s, h] = String(stored).split(':');
-  if (!s || !h) return false;
-  const a = scryptSync(pw, Buffer.from(s, 'hex'), 32), b = Buffer.from(h, 'hex');
+  stored = String(stored || '');
+  let a, b;
+  if (stored.startsWith('pbkdf2$')) {
+    const [, it, salt, hash] = stored.split('$');
+    if (!salt || !hash) return false;
+    a = pbkdf2Sync(String(pw), Buffer.from(salt, 'hex'), Number(it), 32, 'sha256'); b = Buffer.from(hash, 'hex');
+  } else {
+    const [s, h] = stored.split(':');
+    if (!s || !h) return false;
+    a = scryptSync(String(pw), Buffer.from(s, 'hex'), 32); b = Buffer.from(h, 'hex');
+  }
   return a.length === b.length && timingSafeEqual(a, b);
 }
+// Hash used when an account does not exist, so a wrong ID takes as long as a wrong password.
+// Created on first use: Cloudflare Workers do not allow random numbers at module load time.
+let _dummy;
+export const dummyHash = () => (_dummy ||= hashPassword('dummy-password-for-timing'));
 export const sha256 = v => createHash('sha256').update(String(v)).digest('hex');
 
 /* ---------- session tokens (stateless, HMAC) ---------- */
 const secret = () => {
   const s = process.env.SESSION_SECRET;
-  if (!s && process.env.VERCEL) throw new Error('SESSION_SECRET is not set');
+  if (!s && (process.env.VERCEL || process.env.PRODUCTION)) throw new Error('SESSION_SECRET is not set');
   return s || 'dev-only-secret';
 };
 const b64 = b => Buffer.from(b).toString('base64url');
