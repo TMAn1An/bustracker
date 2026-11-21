@@ -46,7 +46,7 @@
       <div><h2>Buses</h2><p class="muted">Set each bus number, its route and departure times. Each bus phone uses its own tracker token.</p></div>
       <form id="addBus" class="a-inline">
         <input id="newBusNo" placeholder="Bus no. (e.g. 12)" maxlength="10" required aria-label="New bus number">
-        <select id="newBusRoute" aria-label="Route"></select>
+        <span class="a-sel"><select id="newBusRoute" aria-label="Route"></select><small class="also" id="newBusAlso"></small></span>
         <button class="btn primary sm">Add bus</button>
       </form>
     </div>
@@ -72,6 +72,7 @@
           <label class="field grow"><span>Route name</span><input id="rName" maxlength="60" placeholder="e.g. Rajendrapur"></label>
           <label class="field"><span>Line colour</span><input id="rColor" type="color" value="#0b6e1c"></label>
         </div>
+        <p class="small also-route" id="rBuses"></p>
         <p class="muted small">Stops go in driving order, starting from the far end; the route always ends at IUBAT Campus.
           Add them by <b>clicking the map</b>, by <b>searching</b> a place, or paste the whole list with <b>Add stops in bulk</b>. Drag a marker to fix its position.</p>
         <div class="a-row"><button class="btn ghost-btn sm" id="bulkBtn" type="button">Add stops in bulk</button><span id="placing" class="small st-wait" hidden></span></div>

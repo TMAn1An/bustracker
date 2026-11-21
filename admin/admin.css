@@ -96,3 +96,10 @@ textarea { font: inherit; font-size: 15px; padding: 10px 12px; border: 1px solid
 .a-pop .btn { white-space: normal; }
 #bulkText { font-size: 14px; }
 @media (max-width: 860px) { .a-stops li, .a-stops-head { grid-template-columns: 26px 1fr 96px; } .a-stops .act { grid-column: 2 / -1; } .a-stops input.tm { width: 96px; } }
+
+small.also { display: block; font-size: 12px; color: #8a5f00; margin-top: 3px; min-height: 0; }
+small.also:empty { display: none; }
+.a-sel { display: inline-flex; flex-direction: column; }
+.also-route { margin: 0; color: var(--ink-2); font-weight: 600; }
+.also-route:empty { display: none; }
+#routeList small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90px; }

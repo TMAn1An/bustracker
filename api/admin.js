@@ -15,6 +15,7 @@ function cleanStops(list) {
     if (lat === null || lng === null) throw new Error(`Stop ${i + 1} "${name}" has no location yet. Use Place and click the map.`);
     const stop = { name, lat: +lat.toFixed(6), lng: +lng.toFixed(6) };
     if (s.time) stop.time = time(s.time, `Stop ${i + 1} pick-up time`);   // optional "HH:MM" pick-up time
+    if (s.approx) stop.approx = true;   // position found automatically; admin has not confirmed it yet
     return stop;
   });
 }

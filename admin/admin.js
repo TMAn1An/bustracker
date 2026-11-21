@@ -49,6 +49,9 @@
 
   /* ---------- Buses ---------- */
   const routeOpts = sel => '<option value="">— No route —</option>' + S.routes.map(r => `<option value="${esc(r.id)}" ${r.id === sel ? 'selected' : ''}>${esc(r.name)}</option>`).join('');
+  // Reminder for admins: which other buses already run a route (sharing a route is fine).
+  const busesOn = (routeId, except) => routeId ? S.buses.filter(b => b.routeId === routeId && b.id !== except).map(b => b.id) : [];
+  const alsoText = (routeId, except) => { const o = busesOn(routeId, except); return o.length ? `Also on this route: Bus ${o.join(', ')}` : ''; };
   function renderBuses() {
     $('#newBusRoute').innerHTML = routeOpts('');
     $('#busEmpty').hidden = S.buses.length > 0;
@@ -56,7 +59,7 @@
       const seen = ago(b.lastSeen), live = b.lastSeen && S.now - b.lastSeen < 60000;
       return `<tr data-id="${esc(b.id)}">
         <td><input class="no" value="${esc(b.id)}" maxlength="10" aria-label="Bus number"></td>
-        <td><select class="rt" aria-label="Route">${routeOpts(b.routeId)}</select></td>
+        <td><select class="rt" aria-label="Route">${routeOpts(b.routeId)}</select><small class="also">${esc(alsoText(b.routeId, b.id))}</small></td>
         <td><input class="tm ds" type="time" value="${esc(b.departStart || '')}" aria-label="Leaves start"></td>
         <td><input class="tm dc" type="time" value="${esc(b.departCampus || '')}" aria-label="Leaves campus"></td>
         <td><input class="dy" list="dayPresets" value="${esc(b.days || '')}" maxlength="30" placeholder="Sat–Wed" aria-label="Days"></td>
@@ -65,14 +68,20 @@
     }).join('');
   }
   $('#busRows').addEventListener('input', e => { const tr = e.target.closest('tr'); if (tr) tr.querySelector('.save').hidden = false; });
-  $('#busRows').addEventListener('change', e => { const tr = e.target.closest('tr'); if (tr) tr.querySelector('.save').hidden = false; });
+  $('#busRows').addEventListener('change', e => {
+    const tr = e.target.closest('tr'); if (!tr) return;
+    tr.querySelector('.save').hidden = false;
+    if (e.target.classList.contains('rt')) tr.querySelector('.also').textContent = alsoText(e.target.value, tr.dataset.id);
+  });
+  $('#newBusRoute').addEventListener('change', e => { $('#newBusAlso').textContent = alsoText(e.target.value, null); });
   $('#busRows').addEventListener('click', async e => {
     const tr = e.target.closest('tr'); if (!tr) return; const id = tr.dataset.id;
     try {
       if (e.target.closest('.save')) {
         await act('saveBus', { id, newId: tr.querySelector('.no').value, routeId: tr.querySelector('.rt').value || null,
           departStart: tr.querySelector('.ds').value, departCampus: tr.querySelector('.dc').value, days: tr.querySelector('.dy').value });
-        toast('Bus saved'); renderBuses(); renderRouteList();
+        const others = busesOn(tr.querySelector('.rt').value, tr.querySelector('.no').value.trim());
+        toast(others.length ? `Bus saved. Bus ${others.join(', ')} also runs this route.` : 'Bus saved'); renderBuses(); renderRouteList();
       }
       else if (e.target.closest('.tok')) { if (!confirm(`Generate a new tracker token for bus ${id}? The old token will stop working.`)) return; const j = await act('newToken', { id }); showToken(id, j.token); }
       else if (e.target.closest('.del')) { if (!confirm(`Delete bus ${id}? Its tracker token will stop working.`)) return; await act('deleteBus', { id }); toast('Bus deleted'); renderBuses(); renderRouteList(); }
@@ -80,7 +89,12 @@
   });
   $('#addBus').addEventListener('submit', async e => {
     e.preventDefault(); const no = $('#newBusNo').value.trim();
-    try { const j = await act('saveBus', { id: null, newId: no, routeId: $('#newBusRoute').value || null }); $('#newBusNo').value = ''; renderBuses(); renderRouteList(); showToken(no, j.token); }
+    try {
+      const routeId = $('#newBusRoute').value || null, others = busesOn(routeId, no);
+      const j = await act('saveBus', { id: null, newId: no, routeId });
+      $('#newBusNo').value = ''; $('#newBusAlso').textContent = ''; renderBuses(); renderRouteList(); showToken(no, j.token);
+      if (others.length) toast(`Bus ${no} added. Bus ${others.join(', ')} also runs this route.`);
+    }
     catch (x) { toast(x.message, true); }
   });
   function showToken(no, t) {
@@ -148,15 +162,15 @@
   /* ---------- Routes ---------- */
   function renderRouteList() {
     $('#routeList').innerHTML = S.routes.map(r => {
-      const n = S.buses.filter(b => b.routeId === r.id).length;
-      return `<li><button data-id="${esc(r.id)}" aria-current="${E && E.id === r.id}"><i style="background:${esc(r.color)}"></i><span>${esc(r.name)}</span><small>${n} bus${n === 1 ? '' : 'es'}</small></button></li>`;
+      const ids = busesOn(r.id, null);
+      return `<li><button data-id="${esc(r.id)}" aria-current="${E && E.id === r.id}"><i style="background:${esc(r.color)}"></i><span>${esc(r.name)}</span><small>${ids.length ? 'Bus ' + ids.map(esc).join(', ') : 'No bus'}</small></button></li>`;
     }).join('') || '<li class="muted small" style="padding:8px">No routes yet.</li>';
   }
   $('#routeList').addEventListener('click', e => {
     const b = e.target.closest('[data-id]'); if (!b) return;
     if (dirty && !confirm('Discard unsaved changes?')) return;
     const r = S.routes.find(x => x.id === b.dataset.id);
-    edit({ id: r.id, name: r.name, color: r.color, stops: r.stops.map(s => ({ ...s })) }, true);
+    edit({ id: r.id, name: r.name, color: r.color, stops: r.stops.map(({ approx, ...s }) => ({ ...s, ...(approx ? { auto: true } : {}) })) }, true);
   });
   $('#newRoute').addEventListener('click', () => {
     if (dirty && !confirm('Discard unsaved changes?')) return;
@@ -167,6 +181,7 @@
     E = route; dirty = false; placing = null; $('#placing').hidden = true;
     $('#routeForm').hidden = false; $('#routeHint').hidden = true;
     $('#rName').value = E.name; $('#rColor').value = E.color; $('#delRoute').hidden = !E.id; $('#rMsg').textContent = '';
+    const on = busesOn(E.id, null); $('#rBuses').textContent = E.id ? (on.length ? `Buses on this route: ${on.join(', ')}` : 'No bus is assigned to this route yet (assign one in Buses).') : '';
     renderStops(); renderRouteList();
     initMap().then(() => { map.resize(); drawRoute(); if (fit) fitRoute(); });
   }
@@ -291,9 +306,10 @@
     if (miss >= 0) { toast(`Stop ${miss + 1} "${E.stops[miss].name}" has no location yet. Use 📍 Place and click the map.`, true); return; }
     const btn = $('#saveRoute'); btn.disabled = true; btn.textContent = 'Saving…'; $('#rMsg').textContent = '';
     try {
-      const stops = E.stops.map(({ name, lat, lng, time }) => ({ name, lat, lng, ...(time ? { time } : {}) }));
+      // "approx" keeps the Check flag for stops whose position was found automatically and not yet confirmed
+      const stops = E.stops.map(({ name, lat, lng, time, auto }) => ({ name, lat, lng, ...(time ? { time } : {}), ...(auto ? { approx: true } : {}) }));
       const j = await act('saveRoute', { route: { id: E.id, name: E.name, color: E.color, stops } });
-      E.stops.forEach(x => { delete x.auto; }); renderStops();
+      renderStops();
       E.id = j.id; dirty = false; $('#delRoute').hidden = false;
       $('#rMsg').textContent = j.snapped ? `Saved · ${j.km.toFixed(1)} km, snapped to roads` : 'Saved · road service unavailable, drawn as straight lines';
       if (j.warn) { $('#rMsg').textContent += ' · Check: ' + j.warn; toast(j.warn, true); }
