@@ -21,11 +21,17 @@ npm run simulate    # another terminal: fake GPS from the bus phones, driving bo
 One dummy student login (`2025001` / `demo1234` locally) exists only to view the prototype. Remove it with `node db/seed.js --remove-dummy`.
 Demo admin (local only): `admin` / `admin1234`.
 
+## Install as an app
+The site is a Progressive Web App: on Android, Chrome shows **Install app** (button in the top bar) and the tracker opens full-screen
+from the home screen with the IUBAT icon; on iPhone use Share, then Add to Home Screen. MapLibre and three.js are served from `/vendor`,
+so the app does not depend on third-party CDNs (only map tiles and fonts are external).
+
 ## Pages
 | Path | What |
 |---|---|
 | `/` | Student app (sign in, bus list, bus detail, 3D map) |
 | `/admin/` | Admin dashboard: **Buses** (number, route, departure times, tracker token), **Routes** (stops on a map, saved snapped to roads), **Notices** (broadcast to all apps, optional expiry) |
+| `/privacy.html` | What the app does with sign-in and location data |
 | `/tracker/` | Lightweight page for the bus phone (geolocation + wake lock). Or use the **Traccar Client** app: Server URL `https://<site>/api/osmand`, device identifier = bus token |
 
 ## Admin: how to set up a bus

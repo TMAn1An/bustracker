@@ -5,7 +5,7 @@
  * If it fails to load, the map keeps its simple extruded-box buses.
  */
 (function () {
-  const THREE_URL = 'https://unpkg.com/three@0.149.0/build/three.min.js';
+  const THREE_URL = '/vendor/three.min.js'; // three.js r149, served from this site
   const MIN_ZOOM = 12.5;
 
   function loadThree() {

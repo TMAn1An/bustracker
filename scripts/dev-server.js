@@ -5,7 +5,7 @@ import { extname, join, normalize } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = process.cwd(), PORT = process.env.PORT || 3000;
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json', '.txt': 'text/plain' };
 
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');

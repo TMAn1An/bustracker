@@ -322,6 +322,16 @@
       </ol>`;
   }
 
+  /* ---------- installable app (PWA) ---------- */
+  if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+  let installEvt = null;
+  addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; $('#installBtn').hidden = false; });
+  addEventListener('appinstalled', () => { installEvt = null; $('#installBtn').hidden = true; });
+  $('#installBtn').addEventListener('click', async () => {
+    if (!installEvt) return;
+    installEvt.prompt(); await installEvt.userChoice.catch(() => {}); installEvt = null; $('#installBtn').hidden = true;
+  });
+
   // Resume an existing session
   const tk = store.get('iubat_token');
   if (tk) enter(tk, store.get('iubat_user') || '').catch(() => { store.del('iubat_token'); loginEl.hidden = false; appEl.hidden = true; });

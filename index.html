@@ -5,11 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0b6e1c">
   <title>IUBAT Bus Tracker</title>
-  <link rel="icon" href="assets/logo.png">
+  <meta name="description" content="Live location of IUBAT campus buses on a 3D map: every route, where each bus is, where it is going and when it arrives.">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="48x48" href="/assets/icons/favicon-48.png">
+  <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="IUBAT Bus">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="IUBAT Bus Tracker">
+  <meta property="og:title" content="IUBAT Bus Tracker: campus buses, live">
+  <meta property="og:description" content="See every IUBAT bus route and follow your bus live on a 3D map.">
+  <meta property="og:url" content="https://iubat-bustracker.vercel.app/">
+  <meta property="og:image" content="https://iubat-bustracker.vercel.app/assets/og.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="vendor/maplibre-gl.css">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -78,6 +92,7 @@
     <p id="loginErr" class="err" role="alert" hidden></p>
     <button class="btn primary" type="submit">Sign in</button>
     <p class="hint">Use your university student ID and password.</p>
+    <p class="hint"><a href="/privacy.html">Privacy</a></p>
   </form>
 </main>
 
@@ -92,6 +107,7 @@
       <span class="live"><i></i> LIVE</span>
       <button class="bell" id="bell" aria-label="Notices" title="Notices"><svg class="i" viewBox="0 0 24 24"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><b id="bellCount" hidden></b></button>
       <span class="user" id="userChip">Student</span>
+      <button class="ghost light install" id="installBtn" hidden>Install app</button>
       <button class="ghost light" id="logout">Sign out</button>
     </div>
   </header>
@@ -141,7 +157,7 @@
   </form>
 </dialog>
 
-<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="vendor/maplibre-gl.js"></script>
 <script src="js/feed.js"></script>
 <script src="js/bus3d.js"></script>
 <script src="js/map.js"></script>

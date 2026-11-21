@@ -322,3 +322,6 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
 .bus-pin.estimated b { background: #fff; color: #5b3fa0; border: 1.5px dashed #7a5cc7; }
 .bus-pin.estimated b::before { background: #7a5cc7; }
 .bus-pin.estimated b::after { content: "~"; margin-left: -2px; font-weight: 600; }
+
+.hint a { color: var(--muted); }
+@media (max-width: 860px) { .ghost.light.install { padding: 6px 9px; } }
