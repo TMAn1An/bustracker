@@ -7,7 +7,7 @@
 **Where is my campus bus right now?** A live, crowd-powered bus tracker built by students, for students.<br>
 Open to everyone, free to run, and ready to fork for your own university.
 
-[**Live app**](https://bustracker.iubat.workers.dev) · [Use it at your university](#use-it-at-your-university) · [Features](#features) · [How it works](#how-it-works)
+[**Live app**](https://bustracker.iubat.workers.dev) · [▶ 38-second demo video](docs/media/promo.mp4) · [Use it at your university](#use-it-at-your-university) · [Features](#features) · [How it works](#how-it-works)
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-0b6e1c)
 ![Runs on Cloudflare Workers free plan](https://img.shields.io/badge/hosting-Cloudflare%20Workers%20(free)-f38020)
