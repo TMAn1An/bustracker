@@ -1,5 +1,5 @@
 // LOCAL test: at most 3 riders share one bus; a 4th waits and gets the slot when one stops. Run: npm run dev, then node scripts/test-slots.js
-import { db, ensureSchema } from '../api/_lib.js';
+import { db, ensureSchema } from '../server/_lib.js';
 if (process.env.TURSO_DATABASE_URL) { console.error('Refusing to run against a remote database.'); process.exit(1); }
 const BASE = process.argv[2] || 'http://localhost:3000';
 await ensureSchema();

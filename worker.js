@@ -1,22 +1,6 @@
 // Cloudflare Worker entry: serves the static app (Workers Static Assets) and the /api/* endpoints.
-// The API handlers are the same files used on Vercel (api/*.js, Node-style req/res); this file adapts them.
-import login from './api/login.js';
-import adminLogin from './api/admin-login.js';
-import admin from './api/admin.js';
-import buses from './api/buses.js';
-import routes from './api/routes.js';
-import track from './api/track.js';
-import osmand from './api/osmand.js';
-import share from './api/share.js';
-import me from './api/me.js';
-import board from './api/board.js';
-import avatar from './api/avatar.js';
-import push from './api/push.js';
-import feedback from './api/feedback.js';
-import { tick } from './api/_push.js';
-import { ensureSchema } from './api/_lib.js';
-
-const API = { login, 'admin-login': adminLogin, admin, buses, routes, track, osmand, share, me, board, avatar, push, feedback };
+// The API handlers (server/*.js, Node-style req/res) are the same ones used on Vercel and locally; this file adapts them.
+import { API } from './server/index.js';
 // expose string bindings (secrets / vars) the way the handlers expect them
 const useEnv = env => { for (const [k, v] of Object.entries(env)) if (typeof v === 'string') process.env[k] = v; };
 

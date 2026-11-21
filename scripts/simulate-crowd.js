@@ -5,7 +5,7 @@
 //   D location jumping around                -> "jump"
 //   E moving rider, verified later, but far from A -> "disagree" (A was verified first)
 // Run: npm run dev, then node scripts/simulate-crowd.js
-import { db, ensureSchema } from '../api/_lib.js';
+import { db, ensureSchema } from '../server/_lib.js';
 if (process.env.TURSO_DATABASE_URL) { console.error('Refusing to run against a remote database.'); process.exit(1); }
 const BASE = process.argv[2] || 'http://localhost:3000', DURATION = 170e3, TICK = 3000;
 await ensureSchema();

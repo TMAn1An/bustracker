@@ -48,7 +48,7 @@ the sharers are rewarded with XP, badges, a leaderboard and (the fun part) a wee
 You can run your own copy in about 30 minutes, for free. No server to manage.
 
 1. **Fork** this repository (button at the top right) and clone your fork.
-2. **Your campus**: edit [`api/_config.js`](api/_config.js) (name, campus location, site URL, time zone).
+2. **Your campus**: edit [`server/_config.js`](server/_config.js) (name, campus location, site URL, time zone).
    Branding: replace `assets/logo.png` and the icons in `assets/icons/`, and change the name in `index.html`, `manifest.webmanifest`,
    `admin/index.html` and `privacy.html` (search for `IUBAT`). Brand colour: `--green` in `css/style.css`.
 3. **Database**: create a free [Turso](https://turso.tech) database; note its URL and token.
@@ -57,7 +57,7 @@ You can run your own copy in about 30 minutes, for free. No server to manage.
 5. **First admin**: `TURSO_DATABASE_URL=… TURSO_AUTH_TOKEN=… node db/seed.js --no-demo` then `node db/seed.js --admin <name> <password>`.
 6. Open `/admin/`, add your routes (paste the stop list from your bus schedule), buses and departure times. Share the link with students.
 
-**Time zone**: the app assumes one time zone for the whole campus (`utcOffsetHours` in `api/_config.js`, sent to the app automatically).
+**Time zone**: the app assumes one time zone for the whole campus (`utcOffsetHours` in `server/_config.js`, sent to the app automatically).
 
 ### Credit & community
 This project is MIT licensed: use it, change it, ship it. If it helps your campus:
@@ -118,7 +118,7 @@ so the app does not depend on third-party CDNs (only map tiles and fonts are ext
 3. Changing a bus number or route in the table takes effect in student apps within a few seconds (no reload).
 
 The starter Rajendrapur route (Bus 11) starts at **Pepsi Gate, Rajendrapur Bazar** and joins the highway at Rajendrapur Chowrastha; add the other stops
-in the admin dashboard. Existing databases whose Rajendrapur route still started at Chowrastha are corrected once automatically (`api/_fixes.js`).
+in the admin dashboard. Existing databases whose Rajendrapur route still started at Chowrastha are corrected once automatically (`server/_fixes.js`).
 
 **Extend or shorten a route**: in *Routes*, a stop added by clicking the map (or from search) goes to the **best position** (least detour), so a point
 beyond the current start becomes the new start. *⤒ Extend start* makes the next click the first stop; *✂ Shorten start* removes the first stop.
@@ -126,7 +126,7 @@ The first stop is marked **START** on the map. Save to re-snap the route to the 
 
 ## Crowd mode: students share the bus location
 A signed-in student on the bus can tap **Share location** on that bus's page. No extra bus device is needed; others then see the bus move.
-Every fix is checked on the server (`api/share.js`) before anyone else sees it:
+Every fix is checked on the server (`server/share.js`) before anyone else sees it:
 - GPS accuracy must be 60 m or better, and the phone must be within about 80 m of the route's road;
 - it must travel at least 400 m along the route over at least 90 s at vehicle speed (8–120 km/h), so sharing from home beside the highway never qualifies;
 - impossible jumps (over 120 km/h between fixes) are ignored; sitting still for 6 min (e.g. got off the bus) pauses the share;
@@ -142,11 +142,11 @@ Test locally: `npm run dev`, then `node scripts/simulate-crowd.js` (five simulat
 ## Open portal: contributors, leaderboard and treats
 The student database has not arrived yet, so the app is open to everyone. Viewing needs nothing; **sharing needs a username** (no password).
 
-**Identity without a password** (`api/me.js`): joining creates a random 192-bit *device key*; the phone keeps it in localStorage,
+**Identity without a password** (`server/me.js`): joining creates a random 192-bit *device key*; the phone keeps it in localStorage,
 the server stores only its SHA-256 and returns a signed 60-day session token (refreshed whenever the app opens). The device key is
 also the **recovery code** (copy it, or a `/#restore=<code>` link, to move to a new phone). Abuse limits: 30 new accounts per hour
 per network, optional Cloudflare Turnstile (set `TURNSTILE_SITEKEY` + `TURNSTILE_SECRET`), and XP only from server-verified sharing.
-When the university provides student data, an account can later be linked to a student ID for a ✔ verified badge (see `api/_students.js`).
+When the university provides student data, an account can later be linked to a student ID for a ✔ verified badge (see `server/_students.js`).
 
 **Usernames** follow variable-name rules: `^[A-Za-z_][A-Za-z0-9_]{2,19}$`, must contain a letter, case-insensitive unique,
 reserved/rude words refused, changeable once a week. Avatar: an emoji, or a 128×128 photo (WebP/JPEG, ≤24 KB) served from `/api/avatar`.
@@ -191,7 +191,7 @@ The same tab sets an **XP boost** (e.g. *Exam week double XP*, 1.5×/2×/3× bet
 - What is sent: ⏰ **20 min before the bus leaves** (your stop in the morning, campus in the evening; only on bus days),
   👑 Saturday 9 AM champion of the week, 📣 Sunday 9 AM treat report for routes that owe tea, ⚔️ route battle winner on the 1st,
   📢 transport notices when the admin ticks *Also send as push notification*. Each type can be switched off.
-- How (`api/_push.js`): VAPID keys are created automatically on first use and kept in the settings table. Pushes carry **no payload**,
+- How (`server/_push.js`): VAPID keys are created automatically on first use and kept in the settings table. Pushes carry **no payload**,
   so there is no message encryption: the server pings the browser's push service, the service worker (`sw.js`) fetches its messages from
   `/api/push` and shows them. A **Cloudflare Cron Trigger** (`wrangler.toml`, every minute) runs `tick()`: reminders, weekly/monthly announcements
   and the outbox (≈30 pushes per run; busy times also drain a few after `/api/buses` requests). Expired subscriptions are removed automatically.
@@ -212,8 +212,8 @@ The same tab sets an **XP boost** (e.g. *Exam week double XP*, 1.5×/2×/3× bet
   (admin → Feedback, filter by route, mark New / Seen / Done). The `attachments` column is reserved for photos/videos later.
 
 ## Student ID link (ready, not active)
-`users.student_id` / `verified_at` columns, a ✔ verified tick in the UI, and the `linkStudent` action in `api/me.js` (returns *coming soon*)
-are in place. When the university database arrives: implement `verifyStudent()` in `api/_students.js`, then make `linkStudent` call it and save
+`users.student_id` / `verified_at` columns, a ✔ verified tick in the UI, and the `linkStudent` action in `server/me.js` (returns *coming soon*)
+are in place. When the university database arrives: implement `verifyStudent()` in `server/_students.js`, then make `linkStudent` call it and save
 the student ID (and the batch from the ID). Nothing else needs to change.
 
 **Free-plan budget**: viewing endpoints are public, so polling adapts: every 8 s while a bus is live, 15 s during trip hours, 60 s otherwise,
@@ -262,6 +262,6 @@ node db/seed.js --students students.csv       # columns: id,name,password
 ```
 
 ## Known limitations / next
-- The student ID login (`api/login.js`, `verifyStudent()`) is kept but no longer used by the app. When the university provides its student database it can be used to link a contributor account to a real student (verified badge, real seniority for treats).
+- The student ID login (`server/login.js`, `verifyStudent()`) is kept but no longer used by the app. When the university provides its student database it can be used to link a contributor account to a real student (verified badge, real seniority for treats).
 - Push needs a browser that supports Web Push (Chrome/Edge/Firefox on Android and desktop; Safari on iPhone only from the Home Screen app).
 - A browser page on the bus phone can be paused by Android when the screen is off; keep it charging with screen on, or use Traccar Client.
