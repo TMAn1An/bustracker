@@ -114,7 +114,12 @@ so the app does not depend on third-party CDNs (only map tiles and fonts are ext
 2. **Buses → Add bus**: enter the bus number, pick the route. A **tracker token** is shown once; open the link on the bus phone.
 3. Changing a bus number or route in the table takes effect in student apps within a few seconds (no reload).
 
-Route stops currently only include the **start point** of Rajendrapur (Bus 11); add the stoppages in the admin dashboard.
+The starter Rajendrapur route (Bus 11) starts at **Pepsi Gate, Rajendrapur Bazar** and joins the highway at Rajendrapur Chowrastha; add the other stops
+in the admin dashboard. Existing databases whose Rajendrapur route still started at Chowrastha are corrected once automatically (`api/_fixes.js`).
+
+**Extend or shorten a route**: in *Routes*, a stop added by clicking the map (or from search) goes to the **best position** (least detour), so a point
+beyond the current start becomes the new start. *⤒ Extend start* makes the next click the first stop; *✂ Shorten start* removes the first stop.
+The first stop is marked **START** on the map. Save to re-snap the route to the roads.
 
 ## Crowd mode: students share the bus location
 A signed-in student on the bus can tap **Share location** on that bus's page. No extra bus device is needed; others then see the bus move.

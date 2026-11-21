@@ -5,6 +5,7 @@
 // and drains the outbox (at most ~30 pushes per run: the free plan allows 50 outgoing requests per invocation).
 import { db, getSetting } from './_lib.js';
 import { SITE } from './_config.js';
+import { runFixes } from './_fixes.js';
 import { bdNow, calendar, busRuns, finalizeWeeks, finalizeMonth, reputation, addDays, weekStart, ROAST_DOW } from './_social.js';
 
 const subtle = globalThis.crypto.subtle;
@@ -87,6 +88,7 @@ const between = (m, at) => m >= at - REMIND_MIN && m < at - REMIND_MIN + 6; // a
 
 export async function tick() {
   const t = bdNow(), m = t.min;
+  try { await runFixes(); } catch (e) { console.error('fixes', e); }
   try {
     await reminders(t);
     // Saturday 9 AM: last week's champions are crowned

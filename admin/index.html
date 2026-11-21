@@ -59,7 +59,7 @@
     </div>
     <div class="a-card a-table-wrap">
       <table class="a-table">
-        <thead><tr><th>Bus no.</th><th>Route</th><th>Leaves start</th><th>Leaves campus</th><th>Days</th><th>Last seen</th><th class="r">Actions</th></tr></thead>
+        <thead><tr><th>Bus</th><th>Route</th><th>Leaves start</th><th>Leaves campus</th><th>Days</th><th>Last seen</th><th class="r">Actions</th></tr></thead>
         <tbody id="busRows"></tbody>
       </table>
       <p id="busEmpty" class="muted a-empty" hidden>No buses yet. Add one above.</p>
@@ -83,6 +83,16 @@
         <p class="muted small">Stops go in driving order, starting from the far end; the route always ends at IUBAT Campus.
           Add them by <b>clicking the map</b>, by <b>searching</b> a place, or paste the whole list with <b>Add stops in bulk</b>. Drag a marker to fix its position.</p>
         <div class="a-row"><button class="btn ghost-btn sm" id="bulkBtn" type="button">Add stops in bulk</button><span id="placing" class="small st-wait" hidden></span></div>
+        <div class="a-tools">
+          <span class="small muted">Click the map to add a stop:</span>
+          <div class="a-seg" role="radiogroup" aria-label="Where a new stop goes">
+            <button type="button" data-mode="smart" aria-checked="true" title="Put the stop where it makes the smallest detour (a point beyond the start becomes the new start)">Best position</button>
+            <button type="button" data-mode="start" aria-checked="false" title="The next stop becomes the first stop (route starts further out)">⤒ Extend start</button>
+            <button type="button" data-mode="end" aria-checked="false" title="The next stop goes last, just before campus">Before campus</button>
+          </div>
+          <button type="button" class="btn ghost-btn sm" id="shortenStart" title="Remove the first stop: the route then starts at the next stop">✂ Shorten start</button>
+          <span id="routeLen" class="small muted"></span>
+        </div>
         <div class="a-stops-head small muted"><span></span><span>Stop</span><span>Pick-up time</span><span></span></div>
         <ol id="stopList" class="a-stops"></ol>
         <div class="a-row end">

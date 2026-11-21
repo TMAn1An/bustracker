@@ -73,9 +73,9 @@
         <td data-label="Route"><select class="rt" aria-label="Route">${routeOpts(b.routeId)}</select><small class="also">${esc(alsoText(b.routeId, b.id))}</small></td>
         <td data-label="Leaves start"><input class="tm ds" type="time" value="${esc(b.departStart || '')}" aria-label="Leaves start"></td>
         <td data-label="Leaves campus"><input class="tm dc" type="time" value="${esc(b.departCampus || '')}" aria-label="Leaves campus"></td>
-        <td data-label="Days"><input class="dy" list="dayPresets" value="${esc(b.days || '')}" maxlength="30" placeholder="Sat–Wed" aria-label="Days"></td>
+        <td data-label="Days"><input class="dy" list="dayPresets" value="${esc(b.days || '')}" maxlength="30" placeholder="Uni days" title="Empty = the university calendar (Calendar tab)" aria-label="Days"></td>
         <td data-label="Last seen"><span class="seen ${live ? 'on' : ''}"><i></i>${seen ? seen : 'Never'}</span></td>
-        <td class="r"><button class="btn ghost-btn sm save" hidden>Save</button><button class="btn ghost-btn sm tok">New token</button><button class="btn ghost-btn sm danger del">Delete</button></td></tr>`;
+        <td class="r acts"><button class="btn primary sm save" hidden>Save</button><button class="btn ghost-btn sm tok" title="New tracker token for the bus phone (the old one stops working)"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/></svg>Token</button><button class="btn ghost-btn sm danger del icon" title="Delete bus ${esc(b.id)}" aria-label="Delete bus ${esc(b.id)}"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></td></tr>`;
     }).join('');
   }
   $('#busRows').addEventListener('input', e => { const tr = e.target.closest('tr'); if (tr) tr.querySelector('.save').hidden = false; });
@@ -311,6 +311,37 @@
   $('#rColor').addEventListener('input', e => { E.color = e.target.value; dirty = true; drawRoute(); });
 
   let placing = null; // index of the stop waiting for a map click
+  // Where a stop added from the map / search goes: 'smart' (least detour), 'start' (new first stop) or 'end' (just before campus)
+  let addMode = 'smart';
+  const km = (a, b) => Math.hypot((a.lat - b.lat) * 111, (a.lng - b.lng) * 102 * Math.cos(a.lat * Math.PI / 180) / Math.cos(23.8 * Math.PI / 180));
+  /** Index where a new stop adds the least extra distance. Before the first stop = the route is extended at its start. */
+  function bestIndex(p) {
+    const pts = [...E.stops.filter(hasPos), S.campus];
+    if (pts.length === 1) return 0;
+    let best = 0, cost = km(p, pts[0]) * 1.15 + (km(p, S.campus) < km(pts[0], S.campus) ? 50 : 0); // extend the start (only if p is farther out)
+    for (let i = 1; i < pts.length; i++) {
+      const c = km(pts[i - 1], p) + km(p, pts[i]) - km(pts[i - 1], pts[i]);
+      if (c < cost) { cost = c; best = i; }
+    }
+    // map back to an index in E.stops (stops without a location keep their place)
+    const placed = E.stops.map((s, i) => (hasPos(s) ? i : -1)).filter(i => i >= 0);
+    return best >= placed.length ? E.stops.length : placed[best];
+  }
+  function addStop(stop, how = addMode) {
+    const i = how === 'start' ? 0 : how === 'end' ? E.stops.length : bestIndex(stop);
+    E.stops.splice(i, 0, stop); dirty = true;
+    if (addMode === 'start') setMode('smart'); // "Extend start" is for one click
+    renderStops(); drawRoute();
+    toast(i === 0 && E.stops.length > 1 ? `"${stop.name}" is now the first stop: the route starts further out. Save to apply.` : `Added as stop ${i + 1}. Drag the marker to adjust.`);
+    return i;
+  }
+  function setMode(m) { addMode = m; document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-checked', b.dataset.mode === m)); }
+  document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => { setMode(b.dataset.mode); if (b.dataset.mode === 'start') toast('Click the map where the route should now start.'); }));
+  $('#shortenStart').addEventListener('click', () => {
+    if (!E || E.stops.length < 2) return toast('A route needs at least one stop besides campus.', true);
+    if (!confirm(`Shorten the route: remove the first stop "${E.stops[0].name}"? The route will start at "${E.stops[1].name}".`)) return;
+    E.stops.shift(); dirty = true; setPlacing(null); renderStops(); drawRoute(); toast('First stop removed. Save to apply.');
+  });
   function setPlacing(i) {
     placing = i;
     const el = $('#placing');
@@ -322,14 +353,17 @@
     const n = E.stops.length;
     $('#stopList').innerHTML = E.stops.map((s, i) => {
       const flag = !hasPos(s) ? '<span class="flag bad" title="Not on the map yet">No location</span>' : s.auto ? '<span class="flag wait" title="Found automatically: check the marker">Check</span>' : '';
-      return `<li data-i="${i}" class="${placing === i ? 'placing' : ''}">
-        <span class="n ${!hasPos(s) ? 'miss' : s.auto ? 'auto' : ''}">${i + 1}</span>
+      return `<li data-i="${i}" class="${placing === i ? 'placing' : ''}${i === 0 ? ' first' : ''}">
+        <span class="n ${!hasPos(s) ? 'miss' : s.auto ? 'auto' : ''}" title="${i === 0 ? 'Start of the route' : ''}">${i === 0 ? 'S' : i + 1}</span>
         <span class="nm-wrap"><input class="nm" value="${esc(s.name)}" maxlength="60" aria-label="Stop ${i + 1} name">${flag}</span>
         <input class="tm" type="time" value="${esc(s.time || '')}" aria-label="Stop ${i + 1} pick-up time">
         <span class="act"><button data-a="place" title="Place on map" aria-label="Place on map">&#128205;</button><button data-a="focus" title="Show on map" aria-label="Show on map" ${hasPos(s) ? '' : 'disabled'}>&#9678;</button><button data-a="up" ${i === 0 ? 'disabled' : ''} aria-label="Move up">&uarr;</button><button data-a="down" ${i === n - 1 ? 'disabled' : ''} aria-label="Move down">&darr;</button><button data-a="del" aria-label="Delete stop">&times;</button></span></li>`;
     }).join('')
       + `<li class="campus"><span class="n">${n + 1}</span><span class="nm-wrap"><input value="IUBAT Campus (fixed end point)" disabled aria-label="Campus"></span><span></span><span class="act"></span></li>`;
     if (!n) $('#stopList').insertAdjacentHTML('afterbegin', '<li class="muted small" style="display:block">No stops yet. Click the map, search a place, or use Add stops in bulk.</li>');
+    const saved = E.id && S.routes.find(r => r.id === E.id);
+    let len = 0; if (saved && !dirty) for (let k = 1; k < saved.geometry.length; k++) len += km({ lat: saved.geometry[k - 1][1], lng: saved.geometry[k - 1][0] }, { lat: saved.geometry[k][1], lng: saved.geometry[k][0] });
+    $('#routeLen').textContent = n ? `Starts at "${E.stops[0].name}"${len ? ` · about ${len.toFixed(1)} km by road` : dirty ? ' · unsaved changes' : ''}` : '';
   }
   $('#stopList').addEventListener('input', e => {
     const li = e.target.closest('li[data-i]'); if (!li) return;
@@ -471,9 +505,8 @@
         const row = $(`#stopList li[data-i="${done}"]`); if (row) setTimeout(() => row.scrollIntoView({ behavior: 'smooth', block: 'center' }), 600);
         return;
       }
-      E.stops.push({ name: `Stop ${E.stops.length + 1}`, lat: +e.lngLat.lat.toFixed(6), lng: +e.lngLat.lng.toFixed(6) });
-      dirty = true; renderStops(); drawRoute();
-      const inp = $('#stopList li[data-i="' + (E.stops.length - 1) + '"] input'); if (inp) { inp.focus(); inp.select(); }
+      const i = addStop({ name: addMode === 'start' ? 'New start' : `Stop ${E.stops.length + 1}`, lat: +e.lngLat.lat.toFixed(6), lng: +e.lngLat.lng.toFixed(6) });
+      const inp = $('#stopList li[data-i="' + i + '"] input.nm'); if (inp) { inp.focus(); inp.select(); }
     });
     return mapReady;
   }
@@ -485,7 +518,7 @@
     if (!E) { map.getSource('draft').setData({ type: 'FeatureCollection', features: [] }); map.getSource('saved').setData({ type: 'FeatureCollection', features: [] }); return; }
     E.stops.forEach((s, i) => {
       if (!hasPos(s)) return;
-      const m = new maplibregl.Marker({ element: pin(i + 1, s.auto ? 'auto' : ''), draggable: true }).setLngLat([s.lng, s.lat]).addTo(map);
+      const m = new maplibregl.Marker({ element: pin(i === 0 ? 'START' : i + 1, (s.auto ? 'auto ' : '') + (i === 0 ? 'start' : '')), draggable: true }).setLngLat([s.lng, s.lat]).addTo(map);
       m.on('dragend', () => { const p = m.getLngLat(); s.lat = +p.lat.toFixed(6); s.lng = +p.lng.toFixed(6); delete s.auto; dirty = true; renderStops(); drawRoute(); });
       markers.push(m);
     });
@@ -511,9 +544,9 @@
       await initMap(); const at = [+j[0].lon, +j[0].lat]; map.flyTo({ center: at, zoom: 15.5 });
       if (E) {
         const box = document.createElement('div'); box.className = 'a-pop';
-        box.innerHTML = `<b>${esc(j[0].display_name.split(',').slice(0, 2).join(','))}</b><button class="btn primary sm">Add “${esc(q)}” as stop</button>`;
+        box.innerHTML = `<b>${esc(j[0].display_name.split(',').slice(0, 2).join(','))}</b><button class="btn primary sm" data-how="smart">Add “${esc(q)}” as a stop</button><button class="btn ghost-btn sm" data-how="start">Make it the new start</button>`;
         const pop = new maplibregl.Popup({ closeOnClick: true, maxWidth: '260px' }).setLngLat(at).setDOMContent(box).addTo(map);
-        box.querySelector('button').onclick = () => { E.stops.push({ name: q.slice(0, 60), lat: +at[1].toFixed(6), lng: +at[0].toFixed(6) }); dirty = true; renderStops(); drawRoute(); pop.remove(); toast('Stop added. Drag the marker if needed.'); };
+        box.querySelectorAll('button').forEach(b => (b.onclick = () => { addStop({ name: q.slice(0, 60), lat: +at[1].toFixed(6), lng: +at[0].toFixed(6) }, b.dataset.how); pop.remove(); }));
       }
     } catch { toast('Search failed. Try again.', true); }
   });
