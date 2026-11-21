@@ -11,7 +11,8 @@
 // Students' identities are never shown to other students; admins can see and block sharers.
 import { db, userFrom, num, ensureSchema, getSetting } from './_lib.js';
 import { project, metres } from './_geo.js';
-import { routeFor, windows, legAt, bdNow, tripOf, tripTick, credit, windowText, END_M } from './_social.js';
+import { routeFor, windows, legAt, bdNow, tripOf, tripTick, credit, windowText, END_M, calendar, busRuns, boostToday } from './_social.js';
+import { hit } from './_ratelimit.js';
 
 const MAX_ACC = 60, ON_ROUTE = 80, MIN_PROGRESS = 400, MIN_WINDOW = 90e3, // ~9 fixes at one every 10 s
       MIN_KMH = 8, MAX_KMH = 120;
@@ -54,10 +55,27 @@ export default async function handler(req, res) {
   const win = await windows(), bt = bdNow(), leg = legAt(win, bt.min);
   if (!leg) { await stop(sid); return res.status(403).json({ error: 'Sharing is closed right now. ' + windowText(win), closed: true }); }
 
+  // Seat report from a verified rider of this bus: "plenty" / "few" / "full" (+2 XP, up to 3 per trip)
+  if (body.action === 'seats') {
+    const level = ['plenty', 'few', 'full'].includes(body.level) ? body.level : null;
+    const ses = (await db().execute({ sql: 'SELECT bus_id, status, last_ts FROM share_sessions WHERE student_id = ?', args: [sid] })).rows[0];
+    if (!level || !ses || !['verified', 'backup'].includes(ses.status) || Date.now() - ses.last_ts > 60e3)
+      return res.status(403).json({ error: 'Seat reports come from verified riders who are sharing this bus.' });
+    const now = Date.now();
+    await db().execute({ sql: 'UPDATE trips SET seats = ?, seats_at = ? WHERE bus_id = ? AND day = ? AND leg = ?', args: [level, now, ses.bus_id, bt.day, leg] });
+    if (await hit(`seat:${sid}:${bt.day}:${leg}`, 1, 5 * 60e3)) // XP at most once per 5 minutes
+      await db().execute({ sql: 'UPDATE contrib SET seat_reports = seat_reports + 1 WHERE user_id = ? AND bus_id = ? AND day = ? AND leg = ?', args: [sid, ses.bus_id, bt.day, leg] });
+    return res.status(200).json({ ok: true, seats: level });
+  }
+
   const busId = String(body.busId || ''), lat = num(body.lat, -90, 90), lng = num(body.lng, -180, 180), acc = num(body.acc, 0, 100000);
   if (!busId || lat === null || lng === null) return res.status(400).json({ error: 'Bad request' });
   const route = await routeFor(busId);
   if (!route) return res.status(404).json({ error: 'This bus has no route yet.' });
+  // University calendar: Sat–Wed by default, plus special open days (exams, programs); holidays closed.
+  const busDays = (await db().execute({ sql: 'SELECT days FROM buses WHERE id = ?', args: [busId] })).rows[0]?.days;
+  const cal = await calendar();
+  if (!busRuns(cal, bt.day, busDays)) { await stop(sid); return res.status(403).json({ error: `Bus ${busId} does not run today${cal.special[bt.day]?.note ? ` (${cal.special[bt.day].note})` : ''}.`, closed: true }); }
   const trip0 = await tripOf(busId, bt.day, leg);
   if (trip0 && trip0.state === 'arrived') {
     await stop(sid);
@@ -124,7 +142,7 @@ export default async function handler(req, res) {
   const earn = async (status, end) => {
     const trip = await tripTick(busId, leg, bt.day, p.s, route.length, now, status === 'verified' ? sid : null);
     const half = status === 'backup' ? 0.5 : 1;
-    const c = await credit({ userId: sid, routeId: route.id, busId, day: bt.day, leg, metres: gain * half, secs: dt, first: trip.first_user === sid, full: false, now });
+    const c = await credit({ userId: sid, routeId: route.id, busId, day: bt.day, leg, metres: gain * half, secs: dt, first: trip.first_user === sid, full: false, now, mult: await boostToday() });
     if (end && Number(c.secs) >= FULL_RIDE_S) Object.assign(c, await credit({ userId: sid, routeId: route.id, busId, day: bt.day, leg, metres: 0, secs: 0, first: false, full: true, now }));
     return { xp: Number(c.xp) || 0, thanks: Number(trip.thanks) || 0, tripState: trip.state };
   };

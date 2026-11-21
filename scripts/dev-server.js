@@ -17,6 +17,7 @@ http.createServer(async (req, res) => {
       const raw = Buffer.concat(chunks).toString();
       try { req.body = raw && (req.headers['content-type'] || '').includes('json') ? JSON.parse(raw) : undefined; } catch { req.body = undefined; }
       req.query = Object.fromEntries(url.searchParams);
+      req.waitUntil = p => p.catch(e => console.error(e));
       res.status = c => { res.statusCode = c; return res; };
       res.json = o => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(o)); };
       res.send = s => res.end(s);
@@ -35,3 +36,9 @@ http.createServer(async (req, res) => {
     if (res.statusCode === 500) console.error(e);
   }
 }).listen(PORT, () => console.log('http://localhost:' + PORT));
+
+// Same as the Cloudflare Cron Trigger: push reminders and outbox, once a minute (NO_CRON=1 to switch off).
+if (!process.env.NO_CRON) setInterval(async () => {
+  try { const { tick } = await import('../api/_push.js'); const { ensureSchema } = await import('../api/_lib.js'); await ensureSchema(); await tick(); }
+  catch (e) { console.error('cron', e.message); }
+}, 60e3);

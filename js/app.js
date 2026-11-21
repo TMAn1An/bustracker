@@ -20,6 +20,8 @@
   const myStops = local.get('iubat_mystop') || {};           // routeId -> stop name (for the morning reminder)
   let remind = !!local.get('iubat_remind');
   let boardTab = 'week', boardRoute = null;
+  const P = S.Push; P.route = myRoute; P.stop = myRoute ? myStops[myRoute] || null : null;
+  const pushOn = () => P.prefs.on && 'Notification' in window && Notification.permission === 'granted';
 
   /* ================= start: no sign-in, the app opens straight away ================= */
   async function start() {
@@ -30,6 +32,18 @@
     S.refresh(); loadBoard();
     const m = /#restore=([\w-]+)/.exec(location.hash);
     if (m) { history.replaceState(null, '', location.pathname); openRestore(m[1]); }
+    else openHash(location.hash);
+    // a tapped push notification opens its screen (#route=…, #me, #board)
+    navigator.serviceWorker?.addEventListener('message', e => { if (e.data?.type === 'open') openHash(new URL(e.data.url).hash); });
+    P.sync(false).catch(() => {}); // keep the server's copy of my route / stop up to date
+  }
+  function openHash(h) {
+    const r = /^#route=([\w-]+)/.exec(h || '');
+    if (r && Feed.routes.some(x => x.id === r[1])) openRoute(r[1]);
+    else if (h === '#me' && S.joined) go({ name: 'me' });
+    else if (h === '#board') go({ name: 'board' });
+    else return;
+    history.replaceState(null, '', location.pathname);
   }
 
   function boot() {
@@ -140,7 +154,7 @@
   function render() {
     renderNotices();
     const body = $('#panelBody'), top = body.scrollTop;
-    const html = shareBar() + ({ route: routeView, notices: noticesView, board: boardView, me: meView, user: userView }[view.name] || homeView)();
+    const html = shareBar() + ({ route: routeView, notices: noticesView, board: boardView, me: meView, user: userView, notify: notifyView, feedback: feedbackView }[view.name] || homeView)();
     if (body._html !== html) { body.innerHTML = html; body._html = html; }
     body.scrollTop = top;
   }
@@ -162,12 +176,24 @@
     if (q('[data-board]')) { boardTab = q('[data-board]').dataset.board; return go({ name: 'board' }); }
     if (q('[data-tab]')) { boardTab = q('[data-tab]').dataset.tab; return render(); }
     if (q('[data-star]')) return setMyRoute(myRoute === q('[data-star]').dataset.star ? null : q('[data-star]').dataset.star);
-    if (q('[data-remind]')) return toggleRemind();
+    if (q('[data-remind]')) return go({ name: 'notify', from: { ...view } });
+    if (q('[data-pushon]')) return run(async () => { await P.enable(); remind = true; local.set('iubat_remind', true); }, '🔔 Notifications on. Try "Send a test".');
+    if (q('[data-pushoff]')) return run(() => P.disable(), 'Notifications off');
+    if (q('[data-pushtest]')) return run(() => P.test(), 'Test sent: it should pop up in a few seconds.');
+    if (q('[data-inapp]')) return toggleRemind();
+    if (q('[data-seats]')) return reportSeats(q('[data-seats]').dataset.seats);
+    if (q('[data-feedback]')) return go({ name: 'feedback', routeId: q('[data-feedback]').dataset.feedback || view.routeId || myRoute, from: { ...view } });
+    if (q('[data-student]')) return toast('Coming soon: link your student ID for a ✔ verified badge once the university database is connected.');
     if (q('[data-join]')) return openJoin();
     if (q('[data-me]')) return go({ name: 'me' });
     if (q('[data-thank]')) return thank(q('[data-thank]').dataset.thank);
     if (q('[data-vouch]')) return run(() => S.act('vouch', { treatIds: q('[data-vouch]').dataset.vouch.split(',').map(Number) }), 'Thanks! Your confirmation is counted. ✋', true);
-    if (q('[data-report]')) { if (confirm('Report this photo as inappropriate? Photos reported by several riders are hidden until the transport office reviews them.')) run(() => S.act('report', { userId: q('[data-report]').dataset.report }), 'Reported. Thank you for keeping it friendly.'); return; }
+    if (q('[data-report]')) {
+      const id = q('[data-report]').dataset.report;
+      if (confirm('Report this photo to the transport office? They will check it and remove it if it is inappropriate. It is hidden for you right away.'))
+        run(async () => { await S.act('report', { userId: id }); S.hideAvatar(id); }, 'Sent to the transport office. Thank you for keeping it friendly.');
+      return;
+    }
     if (q('[data-showkey]')) return showKey();
     if (q('[data-newkey]')) { if (confirm('Make a new recovery code? The old one stops working.')) run(async () => { await S.act('newKey'); showKey(); }); return; }
     if (q('[data-restore]')) return openRestore();
@@ -179,7 +205,12 @@
   function onChange(e) {
     const t = e.target;
     if (t.matches('[data-myroute]')) return setMyRoute(t.value || null);
-    if (t.matches('[data-mystop]')) { myStops[t.dataset.mystop] = t.value || undefined; local.set('iubat_mystop', myStops); return render(); }
+    if (t.matches('[data-mystop]')) {
+      myStops[t.dataset.mystop] = t.value || undefined; local.set('iubat_mystop', myStops);
+      if (t.dataset.mystop === myRoute) { P.stop = t.value || null; P.sync(false).catch(() => {}); }
+      return render();
+    }
+    if (t.matches('[data-pushpref]')) { P.prefs[t.dataset.pushpref] = t.checked; P._save(); return run(() => P.sync(false), 'Saved'); }
     if (t.matches('[data-boardroute]')) { boardRoute = t.value || null; loadBoard(boardRoute); return render(); }
     if (t.matches('#photoIn')) {
       const f = t.files[0]; t.value = '';
@@ -195,6 +226,12 @@
       const emoji = f.querySelector('[data-emoji][aria-checked="true"]')?.dataset.emoji;
       return run(() => S.act('update', { username: name, emoji, routeId: v('route') || null, batch: v('batch').trim() }), 'Profile saved');
     }
+    if (f.dataset.form === 'feedback') {
+      return run(async () => {
+        await S._api('feedback', { routeId: v('route') || null, kind: v('kind'), message: v('message'), contact: v('contact') });
+        go(view.from || { name: 'home' });
+      }, '💬 Thanks! Your feedback went to the transport office.');
+    }
     if (f.dataset.form === 'claim') {
       return run(() => S.act('claimTreat', { routeId: f.dataset.route, giver: v('giver') }), 'Enjoy! ☕ The route\'s reputation goes up.', true);
     }
@@ -208,6 +245,7 @@
   function setMyRoute(id, quiet) {
     if (myRoute === id) return;
     myRoute = id; local.set('iubat_myroute', id);
+    P.route = id; P.stop = id ? myStops[id] || null : null; P.sync(false).catch(() => {});
     if (!quiet && S.joined) S.act('update', { routeId: id }).catch(() => {});
     if (!quiet) toast(id ? '⭐ Saved as your route' : 'Route removed from your home');
     render();
@@ -215,11 +253,11 @@
   async function toggleRemind() {
     remind = !remind; local.set('iubat_remind', remind);
     if (remind && 'Notification' in window && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch {} }
-    toast(remind ? `🔔 We'll remind you ${REMIND_MIN} min before your bus leaves (keep the app installed / open)` : 'Reminder off');
+    toast(remind ? `We'll remind you ${REMIND_MIN} min before your bus leaves while the app is open` : 'In-app reminder off');
     render();
   }
   function checkReminder() {
-    if (!remind || !myRoute) return;
+    if (!(remind || pushOn()) || !myRoute) return;
     const r = Feed.routes.find(x => x.id === myRoute), b = r && bestBus(busesOn(r.id));
     const st = b && tripStatus(b, r);
     if (!st || st.kind !== 'soon') return;
@@ -228,7 +266,7 @@
     done[key] = 1; local.set('iubat_reminded', Object.fromEntries(Object.entries(done).slice(-20)));
     const text = `Bus ${b.id} leaves ${st.where} in ${st.mins} min (${st.at}).`;
     flash({ level: 'info', message: '⏰ ' + text });
-    if ('Notification' in window && Notification.permission === 'granted') {
+    if (!pushOn() && 'Notification' in window && Notification.permission === 'granted') { // with push on, the server sends it
       navigator.serviceWorker?.ready.then(reg => reg.showNotification('⏰ Your bus leaves soon', { body: text, icon: '/assets/icons/icon-192.png', tag: key }))
         .catch(() => { try { new Notification('⏰ Your bus leaves soon', { body: text }); } catch {} });
     }
@@ -241,7 +279,7 @@
   /** What is this bus doing today? live / soon (leaves within 20 min) / next / due / done (arrived) / off */
   function tripStatus(b, r) {
     if (!b) return { kind: 'none', title: 'No bus assigned yet' };
-    const t = Feed.now(), sc = b.schedule || {}, days = Feed.parseDays(sc.days), runs = !days || days.has(t.day);
+    const t = Feed.now(), sc = b.schedule || {}, runs = Feed.busRuns(sc), special = Feed.special();
     const am = Feed.trip(b.id, 'am'), pm = Feed.trip(b.id, 'pm'), first = r ? short(r.stops[0].name) : 'the first stop';
     const stopName = r && myStops[r.id], stop = stopName && r.stops.find(s => s.name === stopName && s.time);
     const pmDep = Feed.hm(sc.departCampus);
@@ -250,7 +288,7 @@
     if (pm?.state === 'arrived') return { kind: 'done', title: `✅ Reached ${first} at ${clock(pm.arrivedAt)}`, sub: 'Evening trip done. See you tomorrow!' };
     if (am?.state === 'arrived' && !(pmDep != null && t.min >= pmDep - REMIND_MIN))
       return { kind: 'done', title: `✅ Reached campus at ${clock(am.arrivedAt)}`, sub: sc.departCampus ? `Leaves campus at ${t12(sc.departCampus)}` : '' };
-    if (!runs) return { kind: 'off', title: '😴 No bus today', sub: sc.days ? `Runs ${sc.days}` : '' };
+    if (!runs) return { kind: 'off', title: special && !special.open ? `🏖️ ${special.note || 'Holiday'}: no bus today` : '😴 No bus today', sub: nextBusDay(sc) };
     const legs = [
       { leg: 'am', dep: stop ? Feed.hm(stop.time) : Feed.hm(sc.departStart), where: stop ? stop.name : first, trip: am },
       { leg: 'pm', dep: pmDep, where: 'campus', trip: pm },
@@ -262,7 +300,15 @@
       if (mins > 0) return { kind: 'soon', leg: L.leg, mins: Math.ceil(mins), where: L.where, at, title: `⏰ Leaves ${L.where} in ${Math.ceil(mins)} min`, sub: `at ${at} · ${L.leg === 'am' ? 'to campus' : 'from campus'}` };
       if (mins > -100) return { kind: 'due', leg: L.leg, title: b.status === 'estimated' ? `On the way (estimated) · ${b.destEtaText}` : `Should have left ${L.where} at ${at}`, sub: 'No live signal yet. On the bus? Share its location!' };
     }
-    return { kind: 'off', title: 'No more trips today', sub: sc.departStart ? `Next: leaves ${first} at ${t12(sc.departStart)}` : '' };
+    return { kind: 'off', title: 'No more trips today', sub: nextBusDay(sc, sc.departStart ? ` · leaves ${first} at ${t12(sc.departStart)}` : '') };
+  }
+  /** "Next bus: Sat 28 Nov" using the university calendar */
+  function nextBusDay(sc, extra = '') {
+    for (let i = 1; i <= 14; i++) {
+      const d = Feed.date(i);
+      if (Feed.busRuns(sc, d)) return `Next bus: ${i === 1 ? 'tomorrow' : new Date(d + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })}${extra}`;
+    }
+    return '';
   }
 
   /* ---------- notices ---------- */
@@ -325,11 +371,30 @@
     if (!Share.active) return `<div class="sharebar ${Share.error ? 'bad' : 'ok'}"><p>${esc(Share.message)}</p></div>`;
     const cls = SH_CLASS[Share.status] || 'wait';
     const fun = Share.xp || Share.thanks ? `<span class="sb-fun">${Share.xp ? `⚡ ${Share.xp} XP this ride` : ''}${Share.thanks ? ` · 🙏 ${Share.thanks} thanks` : ''}</span>` : '';
-    return `<div class="sharebar ${cls}"><div><b>Sharing for Bus ${esc(Share.busId)}</b><p>${esc(Share.message)}</p>${fun}</div>
+    const seatsUi = cls === 'ok' ? `<div class="seatq"><span>Seats now?</span>${SEATS.map(([k, e, l]) => `<button data-seats="${k}" class="${seatsOf(Share.busId)?.level === k ? 'on' : ''}">${e} ${l}</button>`).join('')}</div>` : '';
+    return `<div class="sharebar ${cls}"><div><b>Sharing for Bus ${esc(Share.busId)}</b><p>${esc(Share.message)}</p>${fun}${seatsUi}</div>
       <span class="sb-act">${view.name !== 'route' || view.busId !== Share.busId ? '<button class="link" data-gosh>View</button>' : ''}<button class="btn-stop" data-unshare>Stop</button></span></div>`;
   }
+  /* ---------- seats ---------- */
+  const SEATS = [['plenty', '🟢', 'Plenty'], ['few', '🟡', 'Few'], ['full', '🔴', 'Packed']];
+  const seatsOf = busId => { const leg = Feed.legNow(); return leg ? Feed.trip(busId, leg)?.seats || null : null; };
+  function seatsPill(busId) {
+    const s = seatsOf(busId); if (!s) return '';
+    const [, e, l] = SEATS.find(x => x[0] === s.level), ago = Math.max(1, Math.round((Date.now() + Feed.offset - s.at) / 60e3));
+    return `<span class="pill seats ${s.level}">💺 ${e} ${l === 'Packed' ? 'Packed' : l + ' seats'} · ${ago} min ago</span>`;
+  }
+  async function reportSeats(level) {
+    try {
+      const r = await fetch('api/share', { method: 'POST', headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + S.token }, body: JSON.stringify({ action: 'seats', level, busId: Share.busId }) });
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'Could not save.');
+      const tr = Feed.trip(Share.busId, Feed.legNow()); if (tr) tr.seats = { level, at: Date.now() + Feed.offset };
+      pop('💺 +2 XP'); render();
+    } catch (e) { toast(e.message, true); }
+  }
+
   function shareCta(b) {
     if (!Feed.crowdEnabled || b.noRoute || Share.active) return '';
+    if (!Feed.busRuns(b.schedule)) { const sp = Feed.special(); return `<div class="sharecta off"><p>${sp && !sp.open ? `🏖️ ${esc(sp.note || 'Holiday')}: ` : '😴 '}no bus today, so sharing is closed.</p></div>`; }
     const leg = Feed.legNow(), w = Feed.windows;
     if (!leg) return `<div class="sharecta off"><p>📍 Riders can share this bus from <b>${m12(w.am[0])}</b> until it reaches campus, and from <b>${m12(w.pm[0])}</b> until it reaches the end of its route.</p></div>`;
     const tr = Feed.trip(b.id, leg);
@@ -354,8 +419,38 @@
 
   /* ================= Home ================= */
   function homeView() {
-    return myRouteCard() + leadersStrip() + (myRoute ? treatBanner(myRoute) : '') + routesList();
+    return myRouteCard() + dayBanner() + leadersStrip() + (myRoute ? treatBanner(myRoute) : '') + routesList() + battleMini() + achievements()
+      + `<button class="fbtn" data-feedback>💬 Send feedback to the transport office</button>`;
   }
+  /** Special days (exam / program / holiday) today or tomorrow, and double-XP events */
+  function dayBanner() {
+    let html = '';
+    for (const [i, label] of [[0, 'Today'], [1, 'Tomorrow']]) {
+      const sp = Feed.special(Feed.date(i)); if (!sp) continue;
+      html += `<div class="daybar ${sp.open ? 'open' : 'closed'}">${sp.open ? '📚' : '🏖️'} <b>${label}:</b> ${esc(sp.note || (sp.open ? 'Special open day' : 'Holiday'))} · ${sp.open ? 'buses run' : 'no buses'}</div>`;
+    }
+    const bo = Feed.boostNow(), up = !bo && Feed.boost;
+    if (bo) html += `<div class="daybar boost">🔥 <b>${esc(bo.label)}</b> · every km earns ${bo.mult}× XP until ${new Date(bo.to + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}!</div>`;
+    else if (up) html += `<div class="daybar boost soon">⚡ Coming: <b>${esc(up.label)}</b> (${up.mult}× XP) from ${new Date(up.from + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}</div>`;
+    return html;
+  }
+  const monthName = m => new Date(m + '-01T00:00:00Z').toLocaleString('en', { month: 'long', timeZone: 'UTC' });
+  function battleRows(list, max) {
+    return list.slice(0, max).map((x, i) => { const r = Feed.routes.find(y => y.id === x.routeId); if (!r) return '';
+      return `<button class="brow2" data-route="${esc(r.id)}" style="--route:${esc(r.color)}"><span class="bn">${['🥇', '🥈', '🥉'][i] || i + 1} ${esc(r.name)}</span>
+        <span class="bbar"><i style="width:${x.pct}%"></i></span><b>${x.pct}%</b></button>`; }).join('');
+  }
+  function battleMini() {
+    const B = S.cachedBoard(null); if (!B?.battle?.length || Feed.routes.length < 2) return '';
+    return `<div class="battle"><div class="bt-head"><b>⚔️ Route battle · ${monthName(B.day.slice(0, 7))}</b><button class="link" data-board="battle">Details ›</button></div>${battleRows(B.battle, 3)}
+      <small>Score = bus trips this month that had a live rider sharing.</small></div>`;
+  }
+  function achievements() {
+    const list = S.cachedBoard(null)?.recent || []; if (!list.length) return '';
+    return `<div class="section-title">🎖️ Latest achievements</div><ul class="ach">${list.slice(0, 5).map(a => { const B = S.BADGES[a.badge]; if (!B) return '';
+      return `<li><button data-user="${esc(a.user.id)}">${S.avatar(a.user, 28)}<span>${at(a.user)} unlocked <b>${B[0]} ${esc(B[1])}</b></span><em>${ago(a.at)}</em></button></li>`; }).join('')}</ul>`;
+  }
+  const ago = ts => { const m = Math.round((Date.now() - ts) / 60e3); return m < 60 ? `${Math.max(1, m)}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`; };
   function myRouteCard() {
     const r = myRoute && Feed.routes.find(x => x.id === myRoute);
     if (!r) return `<label class="pickroute"><span>⭐ <b>Pick your route</b> for a reminder ${REMIND_MIN} min before your bus leaves</span>
@@ -364,7 +459,7 @@
     return `<div class="mycard ${st.kind}" style="--route:${esc(r.color)}">
       <button class="mc-main" data-route="${esc(r.id)}"><small>⭐ My route · ${esc(r.name)}${b ? ` · Bus ${esc(b.id)}` : ''}</small>
         <strong>${esc(st.title)}</strong>${st.sub ? `<span>${esc(st.sub)}</span>` : ''}${st.kind === 'soon' ? `<i class="mc-bar" style="--p:${(1 - st.mins / REMIND_MIN) * 100}%"></i>` : ''}</button>
-      <button class="mc-bell ${remind ? 'on' : ''}" data-remind aria-pressed="${remind}" title="Remind me ${REMIND_MIN} min before">${remind ? '🔔' : '🔕'}</button></div>`;
+      <button class="mc-bell ${remind || pushOn() ? 'on' : ''}" data-remind title="Notifications">${remind || pushOn() ? '🔔' : '🔕'}</button></div>`;
   }
   function leadersStrip() {
     const B = S.cachedBoard(null);
@@ -388,6 +483,7 @@
         : b.status === 'estimated' ? `<span class="pill estimated">Bus ${esc(b.id)} · Estimated</span><span class="muted-s">${dirText(b)} · ${b.destEtaText}</span>`
         : `<span class="pill ${b.status}">Bus ${esc(b.id)} · ${STATUS[b.status]}</span><span class="muted-s">${dirText(b)}${b.destEtaText !== '—' ? ' · ' + b.destEtaText : ''}</span>`;
       if (riders) liveLine += `<span class="pill riders">👥 ${riders} sharing</span>`;
+      if (b) liveLine += seatsPill(b.id);
       const sched = b ? schedLine(b) : '';
       return `<button class="rcard${r.id === myRoute ? ' mine' : ''}" data-route="${esc(r.id)}" style="--route:${esc(r.color)}">
         <span class="rbar"></span>
@@ -454,12 +550,13 @@
     if (sched) html += `<div class="sched">${ICON_CLOCK}<span>${sched}</span></div>`;
     if (st.kind === 'soon' || st.kind === 'done') html += `<div class="tripchip ${st.kind}"><b>${esc(st.title)}</b>${st.sub ? `<span>${esc(st.sub)}</span>` : ''}</div>`;
     if (r && myRoute === r.id) html += remindRow(r);
-    return html + busDetail(b, r) + (r ? routeTop(r.id) : '');
+    return html + busDetail(b, r) + (r ? routeTop(r.id) : '') + `<button class="fbtn" data-feedback="${r ? esc(r.id) : ''}">💬 Feedback about this route</button>`;
   }
   function remindRow(r) {
     const timed = r.stops.filter(s => s.time);
-    return `<div class="remindrow"><button class="mc-bell ${remind ? 'on' : ''}" data-remind aria-pressed="${remind}">${remind ? '🔔' : '🔕'}</button>
-      <span>${remind ? `Reminder ${REMIND_MIN} min before it leaves` : `Remind me ${REMIND_MIN} min before it leaves`}</span>
+    const on = remind || pushOn();
+    return `<div class="remindrow"><button class="mc-bell ${on ? 'on' : ''}" data-remind>${on ? '🔔' : '🔕'}</button>
+      <span>${pushOn() ? `Push reminder ${REMIND_MIN} min before it leaves` : on ? `In-app reminder ${REMIND_MIN} min before` : `Remind me ${REMIND_MIN} min before it leaves`}</span>
       ${timed.length ? `<select data-mystop="${esc(r.id)}" aria-label="My stop"><option value="">from the first stop</option>${timed.map(s => `<option ${myStops[r.id] === s.name ? 'selected' : ''} value="${esc(s.name)}">at ${esc(s.name)} (${t12(s.time)})</option>`).join('')}</select>` : ''}</div>`;
   }
   function routeTop(routeId) {
@@ -483,7 +580,7 @@
         <div class="track" aria-hidden="true"><div class="fill" style="width:${(b.progress * 100).toFixed(1)}%"></div><div class="bus" style="left:${(b.progress * 100).toFixed(1)}%">${ICON_BUS}</div></div>
         <div class="j-foot">${off ? '<b>No signal</b> · last seen ' + lastSeen(b) : '<b>' + (b.inbound ? 'Heading to campus' : 'Leaving campus') + '</b> · ' + srcText(b)}</div>
       </div>
-      ${thankBtn(b)}${shareCta(b)}
+      ${seatsPill(b.id) ? `<div class="seatline">${seatsPill(b.id)}</div>` : ''}${thankBtn(b)}${shareCta(b)}
       <div class="stats">
         <div class="stat hot"><small>Arrives in</small><strong>${b.destEtaText}</strong></div>
         <div class="stat warm"><small>Next stop</small><strong style="font-size:16px">${next}</strong>${!off && b.nextStop ? `<em> · ${b.nextEtaText}</em>` : ''}</div>
@@ -503,17 +600,18 @@
   /* ================= Leaderboard ================= */
   function boardView() {
     const B = S.cachedBoard(boardRoute);
-    const tabs = [['today', 'Today'], ['week', 'This week'], ['all', 'All time']];
+    const tabs = [['today', 'Today'], ['week', 'Week'], ['all', 'All time'], ['battle', '⚔️ Routes']];
     let html = `<button class="ghost back" data-back>${ICON_BACK} Home</button>
       <div class="bhead"><h2>🏆 Leaderboard</h2><select data-boardroute aria-label="Route"><option value="">All routes</option>${Feed.routes.map(r => `<option value="${esc(r.id)}" ${boardRoute === r.id ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}</select></div>
       <div class="seg tabs3" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${boardTab === k}">${l}</button>`).join('')}</div>`;
     if (!B) return html + '<p class="muted-p">Loading…</p>';
+    if (boardTab === 'battle') return html + battleView();
     const list = { today: B.today, week: B.weekTop, all: B.allTime }[boardTab] || [];
     html += list.length ? `<ol class="board">${list.map((u, i) => {
       const L = S.level(u.xp), me = S.me && S.me.id === u.id;
       return `<li class="${me ? 'me' : ''} ${i < 3 ? 'top' + (i + 1) : ''}"><button data-user="${esc(u.id)}">
         <span class="rank">${['🥇', '🥈', '🥉'][i] || i + 1}</span>${S.avatar(u, 40)}
-        <span class="who"><b>@${esc(u.username)}${me ? ' <em>you</em>' : ''}</b><small>Lv ${L.n} ${esc(L.name)}${!boardRoute && u.routeId ? ' · ' + esc(routeName(u.routeId)) : ''}</small></span>
+        <span class="who"><b>@${esc(u.username)}${u.verified ? ' <span class="vf" title="Verified student">✔</span>' : ''}${me ? ' <em>you</em>' : ''}</b><small>Lv ${L.n} ${esc(L.name)}${!boardRoute && u.routeId ? ' · ' + esc(routeName(u.routeId)) : ''}</small>${S.badgeRow(u.badges)}</span>
         <span class="pts"><b>${u.pts}</b><small>XP · ${u.km} km</small></span></button></li>`;
     }).join('')}</ol>` : `<div class="emptyboard"><span>🏁</span><p>${boardTab === 'today' ? 'Nobody has shared today yet.' : 'No contributions yet.'} Share your bus location to take the #1 spot!</p></div>`;
     if (!S.joined) html += `<div class="joincta"><div><b>Want your name here?</b><p>Pick a username, share your bus, earn XP. No password needed.</p></div><button class="btn primary sm" data-join>Join</button></div>`;
@@ -531,13 +629,66 @@
     return html;
   }
 
+  function battleView() {
+    const B = S.cachedBoard(null) || {}, list = B.battle || [];
+    let html = `<div class="battle big"><div class="bt-head"><b>⚔️ Route battle · ${monthName((B.day || Feed.date()).slice(0, 7))}</b></div>
+      <p class="small">Which route keeps its bus live? Score = share of this month's bus trips where at least one rider shared. Every trip counts, big or small route.</p>
+      ${list.length ? battleRows(list, 20) : '<p class="muted-p">No trips yet this month.</p>'}
+      ${list.length ? `<small>${list.map(x => `${esc(routeName(x.routeId))}: ${x.covered}/${x.scheduled} trips · ${x.riders} rider${x.riders === 1 ? '' : 's'}`).join(' · ')}</small>` : ''}</div>`;
+    html += `<p class="small muted-p">🏆 The winner is announced on the 1st. Everyone who shared on the winning route gets the ⚔️ Route Warrior badge.</p>`;
+    if (B.battleWins?.length) html += `<div class="section-title">Past winners</div><ol class="mini">${B.battleWins.map(w => `<li><button data-route="${esc(w.routeId)}">🏆 ${esc(routeName(w.routeId))}<span>${monthName(w.month)} · ${Math.round(w.pct)}%</span></button></li>`).join('')}</ol>`;
+    return html;
+  }
+
+  /* ================= Notifications ================= */
+  function notifyView() {
+    const back = `<button class="ghost back" data-back>${ICON_BACK} Back</button>`;
+    const r = Feed.routes.find(x => x.id === myRoute);
+    let html = back + `<div class="bhead"><h2>🔔 Notifications</h2></div>`;
+    if (!r) html += `<label class="pickroute"><span>⭐ First pick your route</span><select data-myroute><option value="">Choose…</option>${Feed.routes.map(x => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></label>`;
+    const timed = r ? r.stops.filter(s => s.time) : [];
+    if (r && timed.length) html += `<label class="nrow"><span>Remind me at</span><select data-mystop="${esc(r.id)}"><option value="">the first stop</option>${timed.map(s => `<option ${myStops[r.id] === s.name ? 'selected' : ''} value="${esc(s.name)}">${esc(s.name)} (${t12(s.time)})</option>`).join('')}</select></label>`;
+    if (!P.supported()) {
+      html += `<p class="estnote">This browser cannot receive push notifications. Install the app (Chrome on Android, or Safari → Add to Home Screen on iPhone).</p>`;
+    } else if (P.needsInstall()) {
+      html += `<div class="estnote"><b>iPhone:</b> tap <b>Share</b> → <b>Add to Home Screen</b>, open IUBAT Bus from your home screen, then turn notifications on here (iOS 16.4 or newer).</div>`;
+    } else if (Notification.permission === 'denied') {
+      html += `<p class="estnote">🔕 Notifications are blocked for this site. Allow them in the browser's site settings (🔒 next to the address), then come back here.</p>`;
+    } else if (!pushOn()) {
+      html += `<div class="pushcard"><span>📲</span><div><b>Get a push even when the app is closed</b><p>${r ? `Bus on ${esc(r.name)}: ${REMIND_MIN} min before it leaves, weekly champion & treat news, transport notices.` : 'Pick your route first.'}</p>
+        <button class="btn primary sm" data-pushon ${r ? '' : 'disabled'}>Turn on notifications</button></div></div>`;
+    } else {
+      const sw = (k, l, d) => `<label class="switch2"><input type="checkbox" data-pushpref="${k}" ${P.prefs[k] ? 'checked' : ''}><span></span><div><b>${l}</b><small>${d}</small></div></label>`;
+      html += `<div class="pform card2">${sw('remind', `⏰ Departure reminder`, `${REMIND_MIN} min before your bus leaves${myStops[myRoute] ? ` ${esc(myStops[myRoute])}` : ''} (morning) and campus (evening), on bus days only`)}
+        ${sw('treat', '👑 Champion & ☕ treat news', 'Weekly champion (Saturday), treat report (Sunday), route battle winner')}
+        ${sw('notices', '📢 Transport notices', 'Important notices from the transport office')}
+        <div class="inrow"><button class="btn ghost-b sm" data-pushtest>Send a test</button><button class="link danger" data-pushoff>Turn off</button></div></div>`;
+    }
+    html += `<label class="switch2 inapp"><input type="checkbox" data-inapp ${remind ? 'checked' : ''}><span></span><div><b>In-app reminder</b><small>A banner ${REMIND_MIN} min before, while the app is open</small></div></label>`;
+    return html;
+  }
+
+  /* ================= Feedback (only the transport office reads it) ================= */
+  function feedbackView() {
+    const back = `<button class="ghost back" data-back>${ICON_BACK} Back</button>`, sel = view.routeId || myRoute;
+    return back + `<div class="bhead"><h2>💬 Feedback</h2></div>
+      <form data-form="feedback" class="pform card2">
+        <p class="small">Only the transport office can read this. Problems with a bus, the schedule or the app, or an idea: tell us.</p>
+        <div class="row2"><label class="field"><span>Route</span><select name="route"><option value="">Not about a route</option>${Feed.routes.map(r => `<option value="${esc(r.id)}" ${sel === r.id ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}</select></label>
+          <label class="field"><span>About</span><select name="kind"><option value="bus">The bus</option><option value="driver">Driver / staff</option><option value="schedule">Timing / schedule</option><option value="app">This app</option><option value="idea">An idea</option><option value="other">Other</option></select></label></div>
+        <label class="field"><span>Message</span><textarea name="message" rows="5" maxlength="1500" required placeholder="What happened? When? Which bus?"></textarea></label>
+        <label class="field"><span>Contact <em>(optional)</em></span><input name="contact" maxlength="80" placeholder="Phone or email, if you want a reply"></label>
+        <p class="fhint">📎 Photo / video attachments are coming soon.${S.me ? ` Sent as @${esc(S.me.username)}.` : ' Sent anonymously.'}</p>
+        <button class="btn primary">Send feedback</button></form>`;
+  }
+
   /* ================= Profiles ================= */
   function profileCard(p, self) {
     const L = S.level(p.xp);
     const owned = new Set(p.badges);
     const badges = Object.entries(S.BADGES).map(([id, [e, n, d]]) => `<li class="${owned.has(id) ? 'got' : ''}" title="${esc(d)}"><span>${e}</span><b>${esc(n)}</b><small>${esc(d)}</small></li>`).join('');
     return `<div class="pcard" style="--c:${esc(p.color)}">${S.avatar(p, 76, 'big')}
-        <div><h2>@${esc(p.username)}</h2>
+        <div><h2>@${esc(p.username)}${p.verified ? ' <span class="vf" title="Verified student">✔</span>' : ''}</h2>
           <div class="chips2">${owned.has('contributor') ? '<span class="chip2 contrib">🤝 Contributor</span>' : '<span class="chip2">New rider</span>'}${p.champion.length ? `<span class="chip2 gold">👑 Champion ×${p.champion.length}</span>` : ''}${p.batch ? `<span class="chip2">Batch ${p.batch}</span>` : ''}${p.routeId ? `<span class="chip2">${esc(routeName(p.routeId))}</span>` : ''}</div></div></div>
       <div class="lvl"><div class="lvl-top"><b>Lv ${L.n} · ${esc(L.name)}</b><span>${p.xp}${L.to ? ` / ${L.to}` : ''} XP</span></div><div class="lvl-bar"><i style="width:${L.pct}%"></i></div>
         <small>${L.next ? `${L.to - p.xp} XP to ${esc(L.next)}` : 'Max level. Absolute legend.'}</small></div>
@@ -573,10 +724,12 @@
         : `<label class="btn ghost-b sm">📸 ${p.avatarV ? 'Change photo' : 'Add a small photo'}<input type="file" id="photoIn" accept="image/*" hidden></label>${p.avatarV ? '<button type="button" class="link" data-removephoto>Remove photo</button>' : ''}`}</div>
       <small class="fhint">Photos are cut to a small square and shown on the leaderboard. Keep it friendly: rude photos get removed and uploads disabled.</small>
       <button class="btn primary">Save</button></form></details>
+    <button class="studentrow" data-student><span>🎓</span><div><b>Link your student ID</b><small>Coming soon: a ✔ verified badge and real seniority for treats, once the university database is connected.</small></div><em>Soon</em></button>
     <details class="edit"><summary>🔑 Recovery code & this phone</summary><div class="pform">
       <p class="small">No password: your account lives on this phone. Save the recovery code to use it on another phone.</p>
       <div class="inrow"><button class="btn ghost-b sm" data-showkey>Show recovery code</button><button class="btn ghost-b sm" data-newkey>Make a new code</button></div>
-      <div class="inrow"><button class="link" data-signout>Sign out on this phone</button><button class="link danger" data-delete>Delete account</button></div></div></details>`;
+      <div class="inrow"><button class="link" data-signout>Sign out on this phone</button><button class="link danger" data-delete>Delete account</button></div></div></details>
+    <button class="fbtn" data-feedback>💬 Send feedback</button>`;
     return html;
   }
   const emojiGrid = sel => S.EMOJIS.map(e => `<button type="button" role="radio" data-emoji="${e}" aria-checked="${e === sel}">${e}</button>`).join('');

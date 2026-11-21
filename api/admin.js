@@ -1,6 +1,7 @@
 import { db, adminFrom, buildGeometry, bumpRev, getRev, sha256, num, CAMPUS, ensureSchema, getSetting, setSetting } from './_lib.js';
 import { randomBytes } from 'node:crypto';
-import { windows, parseWin, resetWindowsCache, PTS } from './_social.js';
+import { windows, parseWin, resetWindowsCache, PTS, calendar, resetCalendarCache, boost, resetBoostCache, bdNow } from './_social.js';
+import { enqueue, drain } from './_push.js';
 
 const BUS_ID = /^[A-Za-z0-9-]{1,10}$/;
 const COLOR = /^#[0-9a-fA-F]{6}$/;
@@ -46,6 +47,8 @@ async function state(community = false) {
       FROM treats t LEFT JOIN users c ON c.id = t.champion_id LEFT JOIN users g ON g.id = t.giver_id ORDER BY t.week DESC, t.id DESC LIMIT 60`,
   ], 'read');
   const win = await windows();
+  const [cal, xpBoost, fb, subs] = await Promise.all([calendar(), boost(), db().execute(`SELECT f.*, u.username FROM feedback f LEFT JOIN users u ON u.id = f.user_id
+      ORDER BY (f.status = 'new') DESC, f.created_at DESC LIMIT 200`), db().execute('SELECT COUNT(*) AS n, SUM(notices) AS notices FROM push_subs')]);
   const last = Object.fromEntries(pos.rows.map(p => [p.bus_id, p]));
   return {
     now: Date.now(), campus: CAMPUS, rev: await getRev(),
@@ -55,6 +58,10 @@ async function state(community = false) {
     sharers: sharers.rows.map(x => ({ studentId: x.student_id, username: x.username, busId: x.bus_id, status: x.status, startedAt: x.started_at, verifiedAt: x.verified_at, lastTs: x.last_ts })),
     blocked: blocks.rows.map(x => ({ studentId: x.student_id, username: x.username, at: x.at })),
     windows: win.text,
+    calendar: cal, boost: xpBoost, today: bdNow().day,
+    push: { subscribers: Number(subs.rows[0].n), notices: Number(subs.rows[0].notices) || 0 },
+    feedback: fb.rows.map(f => ({ id: f.id, routeId: f.route_id, busId: f.bus_id, kind: f.kind, message: f.message, username: f.username, contact: f.contact,
+      attachments: f.attachments ? JSON.parse(f.attachments) : [], status: f.status, createdAt: f.created_at })),
     users: users.rows.map(u => ({ id: u.id, username: u.username, emoji: u.emoji, routeId: u.route_id, batch: u.batch, hasPhoto: !!u.avatar_v, noPhoto: !!u.no_photo,
       createdAt: u.created_at, seenAt: u.seen_at, xp: Number(u.xp), reports: Number(u.reports), blocked: !!u.blocked })),
     photos: photos.rows.map(a => ({ userId: a.user_id, username: a.username, src: `data:${a.mime};base64,${a.data}`, at: a.at, hidden: !!a.hidden, reports: Number(a.reports) })),
@@ -127,7 +134,7 @@ const actions = {
     await db().batch([{ sql: 'DELETE FROM positions WHERE bus_id = ?', args: [id] }, { sql: 'DELETE FROM buses WHERE id = ?', args: [id] }], 'write');
     return {};
   },
-  async addNotice({ message, level, expiresAt }) {
+  async addNotice({ message, level, expiresAt, push }) {
     message = String(message || '').trim();
     if (!message) throw new Error('Write the notice text.');
     if (message.length > 500) throw new Error('Notice is too long (max 500 characters).');
@@ -135,6 +142,11 @@ const actions = {
     const exp = expiresAt ? Number(expiresAt) : null;
     if (exp !== null && (!Number.isFinite(exp) || exp <= Date.now())) throw new Error('Expiry must be in the future.');
     await db().execute({ sql: 'INSERT INTO notices (message, level, created_at, expires_at) VALUES (?,?,?,?)', args: [message, level, Date.now(), exp] });
+    if (push) { // also as a push notification to everyone who allowed notices (sent over the next minutes by the cron job)
+      const n = await enqueue({ where: 's.notices = 1', title: level === 'urgent' ? '🚨 Transport notice' : '📢 Transport notice', body: message, tag: 'notice', ttl: 6 * 3600 });
+      await drain(20);
+      return { pushed: n };
+    }
     return {};
   },
   async deleteNotice({ id }) {
@@ -185,6 +197,32 @@ const actions = {
     if (!['pending', 'paid', 'vouched', 'cancelled'].includes(status)) throw new Error('Bad status.');
     await db().execute({ sql: 'UPDATE treats SET status = ?, settled_at = ? WHERE id = ?', args: [status, status === 'pending' ? null : Date.now(), Number(id)] });
     return {};
+  },
+  // ---- university calendar ----
+  async setOpenDays({ days }) {
+    const d = [...new Set((Array.isArray(days) ? days : []).map(Number).filter(x => Number.isInteger(x) && x >= 0 && x <= 6))];
+    if (!d.length) throw new Error('Pick at least one open day.');
+    await setSetting('open_days', d.join(',')); resetCalendarCache(); return {};
+  },
+  async setSpecialDay({ day, open, note }) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day || ''))) throw new Error('Pick a date.');
+    await db().execute({ sql: 'INSERT INTO calendar (day, open, note) VALUES (?,?,?) ON CONFLICT(day) DO UPDATE SET open = excluded.open, note = excluded.note',
+      args: [day, open ? 1 : 0, String(note || '').trim().slice(0, 60) || null] });
+    resetCalendarCache(); return {};
+  },
+  async deleteSpecialDay({ day }) { await db().execute({ sql: 'DELETE FROM calendar WHERE day = ?', args: [String(day)] }); resetCalendarCache(); return {}; },
+  // ---- XP boost (double XP week) ----
+  async setBoost({ from, to, mult, label }) {
+    const D = /^\d{4}-\d{2}-\d{2}$/;
+    if (!D.test(from || '') || !D.test(to || '') || from > to) throw new Error('Boost: pick a start and end date.');
+    const m = Number(mult); if (![1.5, 2, 3].includes(m)) throw new Error('Boost: 1.5×, 2× or 3×.');
+    await setSetting('xp_boost', JSON.stringify({ from, to, mult: m, label: String(label || '').trim().slice(0, 60) || `${m}× XP` })); resetBoostCache(); return {};
+  },
+  async clearBoost() { await setSetting('xp_boost', 'null'); resetBoostCache(); return {}; },
+  // ---- feedback ----
+  async setFeedback({ id, status }) {
+    if (!['new', 'seen', 'done'].includes(status)) throw new Error('Bad status.');
+    await db().execute({ sql: 'UPDATE feedback SET status = ? WHERE id = ?', args: [status, Number(id)] }); return {};
   },
   async newToken({ id }) {
     const token = newToken();

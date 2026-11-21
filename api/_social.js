@@ -14,6 +14,60 @@ export const addDays = (day, n) => { const d = new Date(day + 'T00:00:00Z'); d.s
 export const weekStart = day => addDays(day, -((new Date(day + 'T00:00:00Z').getUTCDay() + 1) % 7));
 export const ROAST_DOW = 0; // Sunday: overdue treats are announced to the whole route for 24 hours
 
+/* ---------- university calendar ---------- */
+// Normal week: open Saturday to Wednesday. Admins add special days: open (exam, program) or closed (holiday).
+export const DEFAULT_OPEN = '6,0,1,2,3';
+let _cal = { at: 0, v: null };
+export async function calendar() {
+  if (Date.now() - _cal.at < 30e3 && _cal.v) return _cal.v;
+  const today = bdNow().day;
+  const [open, special] = await db().batch([
+    `SELECT value FROM settings WHERE key = 'open_days'`,
+    { sql: 'SELECT day, open, note FROM calendar WHERE day >= ? AND day <= ? ORDER BY day', args: [addDays(today, -40), addDays(today, 120)] },
+  ], 'read');
+  const days = String(open.rows[0]?.value ?? DEFAULT_OPEN).split(',').filter(x => x !== '').map(Number);
+  _cal = { at: Date.now(), v: { openDays: days, special: Object.fromEntries(special.rows.map(x => [x.day, { open: !!x.open, note: x.note || '' }])) } };
+  return _cal.v;
+}
+export const resetCalendarCache = () => { _cal.at = 0; };
+const dowOf = day => new Date(day + 'T00:00:00Z').getUTCDay();
+/** Is the university open on this day (YYYY-MM-DD)? Special days win over the normal week. */
+export const isOpen = (cal, day) => (cal.special[day] ? cal.special[day].open : cal.openDays.includes(dowOf(day)));
+/** Does a bus run on this day? University open, and the bus's own days allow it (special open days: every bus runs). */
+export function busRuns(cal, day, busDays) {
+  if (cal.special[day]) return cal.special[day].open;
+  if (!cal.openDays.includes(dowOf(day))) return false;
+  const d = parseDays(busDays);
+  return !d || d.has(dowOf(day));
+}
+const DAYN = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+/** "Sat–Wed", "Sun-Thu", "Sat, Mon", "Every day" -> Set of weekdays (null = no restriction) */
+export function parseDays(text) {
+  const t = String(text || '').toLowerCase().trim();
+  if (!t || /every|daily|all/.test(t)) return null;
+  const out = new Set();
+  for (const part of t.split(/[,/]+/)) {
+    const m = part.trim().match(/^([a-z]{3})[a-z]*\s*(?:[-–—]|to)?\s*([a-z]{3})?[a-z]*$/);
+    if (!m || !(m[1] in DAYN) || (m[2] && !(m[2] in DAYN))) return null;
+    let a = DAYN[m[1]]; const b = m[2] ? DAYN[m[2]] : a;
+    for (let i = 0; i < 7; i++) { out.add(a); if (a === b) break; a = (a + 1) % 7; }
+  }
+  return out;
+}
+
+/* ---------- XP boost (e.g. double XP during exam week) ---------- */
+let _boost = { at: 0, v: null };
+export async function boost() {
+  if (Date.now() - _boost.at < 30e3) return _boost.v;
+  let v = null;
+  try { v = JSON.parse((await getSetting('xp_boost', 'null')) || 'null'); } catch {}
+  _boost = { at: Date.now(), v: v && v.to >= bdNow().day ? v : null };
+  return _boost.v;
+}
+export const resetBoostCache = () => { _boost.at = 0; };
+/** Multiplier for today (1 when no boost is running). */
+export async function boostToday() { const b = await boost(), d = bdNow().day; return b && d >= b.from && d <= b.to ? Number(b.mult) || 1 : 1; }
+
 /* ---------- sharing windows ---------- */
 // Morning: from 06:00 until the bus reaches campus (hard stop at 12:00).
 // Evening: from 17:00 until the bus reaches the end of its route (hard stop at 22:00). Admin can change both.
@@ -82,25 +136,28 @@ export async function deviceTrip(busId, lat, lng) {
 
 /* ---------- points ---------- */
 // 10 XP per km shared, +5 for being the first verified sharer of a trip, +15 for sharing a trip all the way to the end.
-export const PTS = '(CAST(metres / 100 AS INTEGER) + first * 5 + full * 15)';
-export async function credit({ userId, routeId, busId, day, leg, metres, secs, first, full, now }) {
+// Boosts (double XP week) add "bonus metres" so the km shown stays honest. +2 XP per seat report, up to 3 per trip.
+export const PTS = '(CAST((metres + bonus_m) / 100 AS INTEGER) + first * 5 + full * 15 + MIN(seat_reports, 3) * 2)';
+export async function credit({ userId, routeId, busId, day, leg, metres, secs, first, full, now, mult = 1 }) {
+  const bonus = metres * Math.max(0, mult - 1);
   const r = await db().execute({
-    sql: `INSERT INTO contrib (user_id, route_id, bus_id, day, leg, metres, secs, first, full, first_at, last_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)
-      ON CONFLICT (user_id, bus_id, day, leg) DO UPDATE SET metres = metres + excluded.metres, secs = secs + excluded.secs,
+    sql: `INSERT INTO contrib (user_id, route_id, bus_id, day, leg, metres, bonus_m, secs, first, full, first_at, last_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT (user_id, bus_id, day, leg) DO UPDATE SET metres = metres + excluded.metres, bonus_m = bonus_m + excluded.bonus_m, secs = secs + excluded.secs,
         first = MAX(first, excluded.first), full = MAX(full, excluded.full), last_at = excluded.last_at
       RETURNING ${PTS} AS xp, secs`,
-    args: [userId, routeId, busId, day, leg, metres, secs, first ? 1 : 0, full ? 1 : 0, now, now],
+    args: [userId, routeId, busId, day, leg, metres, bonus, secs, first ? 1 : 0, full ? 1 : 0, now, now],
   });
   return r.rows[0];
 }
 
 /* ---------- leaderboards ---------- */
 const NOT_BLOCKED = 'NOT EXISTS (SELECT 1 FROM share_blocks b WHERE b.student_id = c.user_id)';
-export const pubUser = u => u && ({ id: u.id, username: u.username, emoji: u.emoji || '🚌', color: u.color || '#0b6e1c', avatarV: Number(u.avatar_v) || 0, routeId: u.route_id || null, batch: u.batch ?? null });
+export const pubUser = u => u && ({ id: u.id, username: u.username, emoji: u.emoji || '🚌', color: u.color || '#0b6e1c', avatarV: Number(u.avatar_v) || 0,
+  routeId: u.route_id || null, batch: u.batch ?? null, badges: u.badges ? String(u.badges).split(',') : [], verified: !!u.verified_at });
 /** Top contributors between two days (inclusive from, exclusive to), optionally on one route. */
 export async function top({ from, to = '9999-12-31', routeId = null, limit = 10 }) {
   const r = await db().execute({
-    sql: `SELECT c.user_id AS id, SUM(${PTS}) AS p, SUM(metres) AS m, u.username, u.emoji, u.color, u.avatar_v, u.route_id, u.batch,
+    sql: `SELECT c.user_id AS id, SUM(${PTS}) AS p, SUM(metres) AS m, u.username, u.emoji, u.color, u.avatar_v, u.route_id, u.batch, u.badges, u.verified_at,
         (SELECT SUM(${PTS}) FROM contrib c2 WHERE c2.user_id = c.user_id) AS xp
       FROM contrib c JOIN users u ON u.id = c.user_id
       WHERE c.day >= ? AND c.day < ? ${routeId ? 'AND c.route_id = ?' : ''} AND ${NOT_BLOCKED}
@@ -180,8 +237,10 @@ export async function profile(userId) {
     { sql: `SELECT COALESCE(SUM(${PTS}),0) AS xp, COALESCE(SUM(metres),0) AS m, COUNT(*) AS trips, COALESCE(SUM(full),0) AS fulls, COALESCE(SUM(first),0) AS firsts,
         COUNT(DISTINCT route_id) AS routes, COALESCE(SUM(leg = 'pm'),0) AS pms,
         COALESCE(SUM(leg = 'am' AND ((first_at / 60000 + 360) % 1440) < 405),0) AS early,
-        COALESCE(SUM(CASE WHEN day >= ? THEN ${PTS} ELSE 0 END),0) AS week, COALESCE(SUM(CASE WHEN day = ? THEN ${PTS} ELSE 0 END),0) AS today
-      FROM contrib WHERE user_id = ?`, args: [wk, today, userId] },
+        COALESCE(SUM(CASE WHEN day >= ? THEN ${PTS} ELSE 0 END),0) AS week, COALESCE(SUM(CASE WHEN day = ? THEN ${PTS} ELSE 0 END),0) AS today,
+        COALESCE(SUM(seat_reports),0) AS seats,
+        (SELECT COUNT(*) FROM route_wins w WHERE EXISTS (SELECT 1 FROM contrib c3 WHERE c3.user_id = ? AND c3.route_id = w.route_id AND substr(c3.day, 1, 7) = w.month)) AS battles
+      FROM contrib WHERE user_id = ?`, args: [wk, today, userId, userId] },
     { sql: `SELECT day, SUM(${PTS}) AS p FROM contrib WHERE user_id = ? AND day >= ? GROUP BY day`, args: [userId, heatFrom] },
     { sql: `SELECT DISTINCT day FROM contrib WHERE day >= ? ORDER BY day DESC`, args: [addDays(today, -90)] },
     { sql: 'SELECT week, route_id, pts FROM champions WHERE user_id = ? ORDER BY week DESC', args: [userId] },
@@ -205,10 +264,21 @@ export async function profile(userId) {
   add('contributor', n('trips') > 0); add('early_bird', n('early') > 0); add('trailblazer', n('firsts') > 0); add('full_ride', n('fulls') > 0);
   add('night_owl', n('pms') > 0); add('streak3', best >= 3); add('streak7', best >= 7); add('km10', n('m') >= 10e3); add('km100', n('m') >= 100e3);
   add('explorer', n('routes') >= 2); add('champion', champs.rows.length > 0); add('generous', Number(given.rows[0].n) > 0);
+  add('seat_scout', n('seats') >= 5); add('route_war', n('battles') > 0);
+  // Remember earned badges on the user row (leaderboards show them) and log new unlocks for the "latest achievements" feed.
+  const had = user.badges ? String(user.badges).split(',') : [];
+  if (badges.join(',') !== had.join(',')) {
+    const fresh = badges.filter(b => !had.includes(b)), now = Date.now();
+    await db().batch([
+      { sql: 'UPDATE users SET badges = ? WHERE id = ?', args: [badges.join(','), userId] },
+      ...fresh.map(b => ({ sql: 'INSERT INTO badge_events (user_id, badge, at) VALUES (?,?,?) ON CONFLICT DO NOTHING', args: [userId, b, now] })),
+    ], 'write');
+    user.badges = badges.join(',');
+  }
   return {
     user, avatarHidden: !!(avatar.rows[0] && avatar.rows[0].hidden),
     pub: {
-      ...pubUser(user), xp: n('xp'), km: +(n('m') / 1000).toFixed(1), trips: n('trips'), week: n('week'), today: n('today'), streak, bestStreak: best,
+      ...pubUser(user), xp: n('xp'), seatReports: n('seats'), km: +(n('m') / 1000).toFixed(1), trips: n('trips'), week: n('week'), today: n('today'), streak, bestStreak: best,
       badges, heat: Object.fromEntries(heat.rows.map(x => [x.day, Number(x.p)])), heatFrom,
       champion: champs.rows.map(x => ({ week: x.week, routeId: x.route_id, pts: Number(x.pts) })), treatsGiven: Number(given.rows[0].n), joined: user.created_at,
     },
@@ -231,3 +301,41 @@ export function checkUsername(v) {
 }
 export const EMOJIS = ['🚌', '🐯', '🦊', '🐼', '🐸', '🦉', '🐧', '🐨', '🦁', '🐵', '🐱', '🐶', '🦄', '🐲', '🐻', '🐰', '🐙', '🦖', '🐝', '🦜'];
 export const COLORS = ['#0b6e1c', '#1d6fe0', '#8a3ffc', '#d92d20', '#f08a00', '#00a3a3', '#c2188a', '#5b6b00'];
+
+/* ---------- monthly route battle ---------- */
+// Score = share of this month's scheduled bus trips (open days x buses x 2 legs) that riders covered with a verified share.
+// Fair across big and small routes, and it rewards exactly what helps: no trip without a live bus.
+export async function battle(month = bdNow().day.slice(0, 7)) {
+  const cal = await calendar(), t = bdNow(), win = await windows();
+  const [buses, covered] = await db().batch([
+    'SELECT id, route_id, depart_start, depart_campus, days FROM buses WHERE route_id IS NOT NULL',
+    { sql: `SELECT route_id, COUNT(DISTINCT bus_id || day || leg) AS trips, SUM(${PTS}) AS xp, COUNT(DISTINCT user_id) AS riders
+        FROM contrib WHERE substr(day, 1, 7) = ? GROUP BY route_id`, args: [month] },
+  ], 'read');
+  const last = month < t.day.slice(0, 7) ? new Date(Date.UTC(+month.slice(0, 4), +month.slice(5, 7), 0)).toISOString().slice(0, 10) : t.day;
+  const sched = {};
+  for (let d = month + '-01'; d <= last; d = addDays(d, 1)) {
+    for (const b of buses.rows) {
+      if (!busRuns(cal, d, b.days)) continue;
+      // today: count only the trips whose sharing window has started
+      const legs = d < t.day ? 2 : (t.min >= win.am[0] ? 1 : 0) + (t.min >= win.pm[0] ? 1 : 0);
+      sched[b.route_id] = (sched[b.route_id] || 0) + legs;
+    }
+  }
+  const cov = Object.fromEntries(covered.rows.map(x => [x.route_id, x]));
+  return Object.keys({ ...sched, ...cov }).map(id => {
+    const c = cov[id], s = sched[id] || 0, n = c ? Number(c.trips) : 0;
+    return { routeId: id, covered: n, scheduled: s, pct: s ? Math.min(100, Math.round(n / s * 100)) : 0, xp: c ? Number(c.xp) : 0, riders: c ? Number(c.riders) : 0 };
+  }).sort((a, b) => b.pct - a.pct || b.xp - a.xp);
+}
+/** Crown last month's route battle winner (lazily, like the weekly champions). */
+let _monthDone = null;
+export async function finalizeMonth() {
+  const cur = bdNow().day.slice(0, 7), d = new Date(cur + '-01T00:00:00Z'); d.setUTCMonth(d.getUTCMonth() - 1);
+  const prev = d.toISOString().slice(0, 7);
+  if (_monthDone === prev) return;
+  if ((await getSetting('battle_month', '')) >= prev) { _monthDone = prev; return; }
+  const top = (await battle(prev))[0];
+  if (top && top.covered > 0) await db().execute({ sql: 'INSERT INTO route_wins (month, route_id, pct) VALUES (?,?,?) ON CONFLICT DO NOTHING', args: [prev, top.routeId, top.pct] });
+  await setSetting('battle_month', prev); _monthDone = prev;
+}

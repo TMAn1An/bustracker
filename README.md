@@ -93,8 +93,44 @@ Waiting riders can send the sharer a 🙏 thank-you.
 - A treat pending for over 7 days is **overdue**: the route's *Generosity* rating (1–5 ★) drops, the route shows 🥲, and every **Sunday** the whole
   route sees a 24-hour "seniors are kipta" treat report.
 
-**Moderation** (admin → Community): review reported/new photos (3 reports hide a photo automatically), remove photos, ban photo uploads,
-reset a username, block sharing (also hides from leaderboards), settle or cancel treats.
+**Moderation** (admin → Community): a single report sends a photo to the top of the review queue (red counter on the tab); the admin keeps
+or removes it (optionally banning photo uploads). The reporter stops seeing that photo at once. Also: reset a username, block sharing
+(also hides from leaderboards), settle or cancel treats.
+
+**Badges are public**: every leaderboard row shows the rider's best badges, profiles show all 14 (earned ones in colour), and the home page
+has a *Latest achievements* feed ("@rafi_21 unlocked 🔥 On Fire").
+
+## University calendar (admin → Calendar)
+Normal week: **open Saturday to Wednesday** (editable). Special days override it: **open** (exam, program: every bus runs that day) or
+**closed** (holiday: no buses). Sharing, timetable estimates, "no bus today / next bus" texts, the route battle and push reminders all follow it.
+Students see a banner for a special day today or tomorrow. A bus's own *Days* field can only narrow a normal open day.
+The same tab sets an **XP boost** (e.g. *Exam week double XP*, 1.5×/2×/3× between two dates): extra XP is stored separately, so km stays honest.
+
+## Push notifications (Web Push, free)
+- Works without an account: tap the 🔔 on *My route* → *Turn on notifications* (choose *my stop* for the morning reminder).
+  iPhone needs iOS 16.4+ and the app added to the Home Screen first; the app explains this.
+- What is sent: ⏰ **20 min before the bus leaves** (your stop in the morning, campus in the evening; only on bus days),
+  👑 Saturday 9 AM champion of the week, 📣 Sunday 9 AM treat report for routes that owe tea, ⚔️ route battle winner on the 1st,
+  📢 transport notices when the admin ticks *Also send as push notification*. Each type can be switched off.
+- How (`api/_push.js`): VAPID keys are created automatically on first use and kept in the settings table. Pushes carry **no payload**,
+  so there is no message encryption: the server pings the browser's push service, the service worker (`sw.js`) fetches its messages from
+  `/api/push` and shows them. A **Cloudflare Cron Trigger** (`wrangler.toml`, every minute) runs `tick()`: reminders, weekly/monthly announcements
+  and the outbox (≈30 pushes per run; busy times also drain a few after `/api/buses` requests). Expired subscriptions are removed automatically.
+- Optional `VAPID_SUBJECT` (var): contact URL or `mailto:` sent to push services (default: the site URL).
+- Local test: `PUSH_TEST=1 npm run dev`, then `node scripts/test-push.js` (fake push service; checks the VAPID signature and the inbox).
+  On Vercel there is no every-minute cron, so reminders only work on Cloudflare.
+
+## Seats, route battle, feedback
+- **Seats**: a verified rider who is sharing taps 🟢 Plenty / 🟡 Few / 🔴 Packed; everyone sees it on the route for 25 minutes (+2 XP, max 3 per trip; 💺 Seat Scout badge after 5).
+- **Route battle** (monthly): score = share of this month's scheduled bus trips (open days × buses × 2) that had a verified rider. Fair for
+  big and small routes. The winner is crowned on the 1st; everyone who shared on it gets ⚔️ Route Warrior.
+- **Feedback**: anyone can send feedback (route, topic, message, optional contact; sent as their username or anonymously). Only admins see it
+  (admin → Feedback, filter by route, mark New / Seen / Done). The `attachments` column is reserved for photos/videos later.
+
+## Student ID link (ready, not active)
+`users.student_id` / `verified_at` columns, a ✔ verified tick in the UI, and the `linkStudent` action in `api/me.js` (returns *coming soon*)
+are in place. When the university database arrives: implement `verifyStudent()` in `api/_students.js`, then make `linkStudent` call it and save
+the student ID (and the batch from the ID). Nothing else needs to change.
 
 **Free-plan budget**: viewing endpoints are public, so polling adapts: every 8 s while a bus is live, 15 s during trip hours, 60 s otherwise,
 never while the app is hidden. Leaderboards are cached 20 s per Worker instance and 60 s on the phone. If daily traffic approaches Cloudflare's
@@ -143,5 +179,5 @@ node db/seed.js --students students.csv       # columns: id,name,password
 
 ## Known limitations / next
 - The student ID login (`api/login.js`, `verifyStudent()`) is kept but no longer used by the app. When the university provides its student database it can be used to link a contributor account to a real student (verified badge, real seniority for treats).
-- Notices and departure reminders show inside the app (and as a notification while it is open/installed). Push to a closed app (Web Push + a Cloudflare Cron Trigger) is not built yet.
+- Push needs a browser that supports Web Push (Chrome/Edge/Firefox on Android and desktop; Safari on iPhone only from the Home Screen app).
 - A browser page on the bus phone can be paused by Android when the screen is off; keep it charging with screen on, or use Traccar Client.

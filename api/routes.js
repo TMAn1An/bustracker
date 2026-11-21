@@ -1,5 +1,5 @@
 import { db, getRev, CAMPUS, ensureSchema, activeNotices, getSetting } from './_lib.js';
-import { windows } from './_social.js';
+import { windows, calendar, boost } from './_social.js';
 
 // Public (open portal): routes, bus->route assignment, schedules, sharing windows and notices. Reloaded only when `rev` changes.
 export default async function handler(req, res) {
@@ -9,7 +9,7 @@ export default async function handler(req, res) {
     db().execute('SELECT id, route_id, depart_start, depart_campus, days FROM buses ORDER BY CAST(id AS INTEGER), id'),
     getRev(), activeNotices(), getSetting('crowd_enabled', '1'),
   ]);
-  const win = await windows();
+  const [win, cal, xpBoost] = await Promise.all([windows(), calendar(), boost()]);
   res.setHeader('Cache-Control', 'no-store');
   res.status(200).json({
     campus: CAMPUS, rev,
@@ -18,5 +18,7 @@ export default async function handler(req, res) {
     notices, now: Date.now(), crowdEnabled: crowd === '1',
     windows: { am: win.am, pm: win.pm },          // minutes after midnight, Bangladesh time
     turnstile: process.env.TURNSTILE_SITEKEY || null, // optional bot check when picking a username
+    calendar: cal,                                     // { openDays: [6,0,1,2,3], special: { 'YYYY-MM-DD': { open, note } } }
+    boost: xpBoost,                                    // { from, to, mult, label } while a double-XP event is running or coming
   });
 }

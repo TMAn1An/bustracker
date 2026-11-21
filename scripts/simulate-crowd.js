@@ -38,7 +38,7 @@ const riders = {
   d: t => { const p = at(2000 + v * t + (Math.floor(t / 3) % 2 ? 6000 : 0)); return { lat: p.lat, lng: p.lng }; },
   e: t => (t < 20 ? null : (() => { const p = at(6000 + v * t); return { lat: p.lat + jitter(), lng: p.lng + jitter() }; })()),
 };
-const last = {};
+const last = {}; let seatSent = false;
 async function tick() {
   const t = (Date.now() - t0) / 1000;
   const line = [];
@@ -46,7 +46,12 @@ async function tick() {
     const p = f(t); if (!p) { line.push(`${k.toUpperCase()}:-`); continue; }
     const r = await fetch(BASE + '/api/share', { method: 'POST', headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + tokens[k] },
       body: JSON.stringify({ busId: '11', lat: p.lat, lng: p.lng, acc: 10, speed: k === 'b' || k === 'c' ? 0 : v }) });
-    const j = await r.json(); last[k] = j.status || j.error; line.push(`${k.toUpperCase()}:${last[k]}${j.xp ? `(${j.xp}xp)` : ''}`);
+    const j = await r.json(); last[k] = j.status || j.error;
+    if (k === 'a' && j.status === 'verified' && !seatSent) { // a verified rider can report seats
+      seatSent = true;
+      const sr = await fetch(BASE + '/api/share', { method: 'POST', headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + tokens.a }, body: JSON.stringify({ action: 'seats', level: 'few' }) });
+      console.log('  seat report by A:', JSON.stringify(await sr.json()));
+    } line.push(`${k.toUpperCase()}:${last[k]}${j.xp ? `(${j.xp}xp)` : ''}`);
   }
   const pos = (await db().execute(`SELECT source, ts FROM positions WHERE bus_id='11'`)).rows[0];
   console.log(`t=${String(Math.round(t)).padStart(3)}s  ${line.join('  ')}  | bus: ${pos ? pos.source : 'no position'}`);

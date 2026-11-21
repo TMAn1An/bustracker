@@ -53,6 +53,25 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS treats (id INTEGER PRIMARY KEY AUTOINCREMENT, route_id TEXT NOT NULL, week TEXT NOT NULL, champion_id TEXT NOT NULL,
      status TEXT NOT NULL, giver_id TEXT, created_at INTEGER NOT NULL, settled_at INTEGER, UNIQUE (route_id, week))`,
   `CREATE TABLE IF NOT EXISTS vouches (treat_id INTEGER NOT NULL, user_id TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (treat_id, user_id))`,
+  // ---- University calendar: special days that differ from the normal week (exam / program open, holiday closed) ----
+  `CREATE TABLE IF NOT EXISTS calendar (day TEXT PRIMARY KEY, open INTEGER NOT NULL, note TEXT)`,
+  // ---- Web Push: anonymous subscriptions (no account needed) and a small outbox ----
+  `CREATE TABLE IF NOT EXISTS push_subs (id INTEGER PRIMARY KEY AUTOINCREMENT, endpoint TEXT NOT NULL UNIQUE, user_id TEXT, route_id TEXT, stop TEXT,
+     remind INTEGER NOT NULL DEFAULT 1, treat INTEGER NOT NULL DEFAULT 1, notices INTEGER NOT NULL DEFAULT 1,
+     sent_am TEXT, sent_pm TEXT, created_at INTEGER NOT NULL, seen_at INTEGER NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS push_subs_route ON push_subs (route_id)`,
+  // Push messages carry no payload (no encryption needed, cheap on the free plan): the service worker fetches its messages from here.
+  `CREATE TABLE IF NOT EXISTS push_msgs (id INTEGER PRIMARY KEY AUTOINCREMENT, sub_id INTEGER NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, url TEXT,
+     tag TEXT, ttl INTEGER NOT NULL DEFAULT 3600, created_at INTEGER NOT NULL, sent_at INTEGER, read_at INTEGER)`,
+  `CREATE INDEX IF NOT EXISTS push_msgs_out ON push_msgs (sent_at, id)`,
+  `CREATE INDEX IF NOT EXISTS push_msgs_sub ON push_msgs (sub_id, read_at)`,
+  // ---- Feedback (only admins see it). attachments: JSON list, reserved for photos/videos later ----
+  `CREATE TABLE IF NOT EXISTS feedback (id INTEGER PRIMARY KEY AUTOINCREMENT, route_id TEXT, bus_id TEXT, kind TEXT NOT NULL, message TEXT NOT NULL,
+     user_id TEXT, contact TEXT, attachments TEXT, status TEXT NOT NULL DEFAULT 'new', created_at INTEGER NOT NULL, ip_hash TEXT)`,
+  // ---- Fun: badge unlock feed, monthly route battle winners ----
+  `CREATE TABLE IF NOT EXISTS badge_events (user_id TEXT NOT NULL, badge TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (user_id, badge))`,
+  `CREATE INDEX IF NOT EXISTS badge_events_at ON badge_events (at)`,
+  `CREATE TABLE IF NOT EXISTS route_wins (month TEXT NOT NULL, route_id TEXT NOT NULL, pct REAL NOT NULL, PRIMARY KEY (month))`,
 ];
 // Columns added after the first release (applied to existing databases; "duplicate column" errors are ignored).
 const MIGRATIONS = [
@@ -60,10 +79,18 @@ const MIGRATIONS = [
   `ALTER TABLE buses ADD COLUMN depart_campus TEXT`,  // e.g. "17:40" — leaves campus
   `ALTER TABLE buses ADD COLUMN days TEXT`,           // e.g. "Sat–Wed"
   `ALTER TABLE positions ADD COLUMN source TEXT`,     // 'device' (bus phone) or 'crowd' (verified student on board)
+  `ALTER TABLE users ADD COLUMN badges TEXT`,          // earned badge ids, comma separated (shown on leaderboards)
+  `ALTER TABLE users ADD COLUMN student_id TEXT`,      // reserved: linked university student ID (when the student database arrives)
+  `ALTER TABLE users ADD COLUMN verified_at INTEGER`,  // reserved: when the student ID was verified
+  `ALTER TABLE contrib ADD COLUMN bonus_m REAL NOT NULL DEFAULT 0`,        // extra "metres" from XP boosts (double XP week); km stays honest
+  `ALTER TABLE contrib ADD COLUMN seat_reports INTEGER NOT NULL DEFAULT 0`, // seat availability reports on this trip
+  `ALTER TABLE trips ADD COLUMN seats TEXT`,           // 'plenty' | 'few' | 'full', reported by a verified rider
+  `ALTER TABLE trips ADD COLUMN seats_at INTEGER`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS users_student ON users (student_id) WHERE student_id IS NOT NULL`,
 ];
 
 // Bump SCHEMA_V whenever SCHEMA or MIGRATIONS change.
-const SCHEMA_V = '5';
+const SCHEMA_V = '6';
 // Create any missing tables once per serverless instance (cheap: CREATE TABLE IF NOT EXISTS).
 let _schema;
 export function ensureSchema() {

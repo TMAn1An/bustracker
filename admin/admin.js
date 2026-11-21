@@ -36,7 +36,7 @@
   async function start() {
     S = await api('admin');
     $('#signin').hidden = true; $('#adminApp').hidden = false;
-    renderBuses(); renderRouteList(); renderNotices(); renderSharing();
+    renderBuses(); renderRouteList(); renderNotices(); renderSharing(); renderCalendar(); renderFeedback(); counts();
     setInterval(async () => { if (!$('#tab-sharing').hidden && !document.hidden) { try { S = await api('admin'); renderSharing(); } catch {} } }, 10000);
   }
 
@@ -52,8 +52,8 @@
 
   document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => {
     document.querySelectorAll('[data-tab]').forEach(x => x.setAttribute('aria-selected', x === b));
-    ['buses', 'routes', 'notices', 'sharing', 'community'].forEach(t => { $('#tab-' + t).hidden = b.dataset.tab !== t; });
-    $('#menuLabel').textContent = b.textContent; toggleMenu(false); // phone: show the current section, close the menu
+    ['buses', 'routes', 'notices', 'sharing', 'community', 'calendar', 'feedback'].forEach(t => { $('#tab-' + t).hidden = b.dataset.tab !== t; });
+    $('#menuLabel').textContent = b.firstChild.textContent.trim(); toggleMenu(false); // phone: show the current section, close the menu
     if (b.dataset.tab === 'routes') { initMap().then(() => { map.resize(); drawRoute(); }); }
     if (b.dataset.tab === 'community') loadCommunity();
   }));
@@ -151,13 +151,13 @@
 
   /* ---------- Community ---------- */
   const routeName = id => S.routes.find(r => r.id === id)?.name || '—';
-  async function loadCommunity() { try { S = await api('admin?community=1'); renderCommunity(); } catch (x) { toast(x.message, true); } }
-  const cact = async (action, body, msg) => { try { await act(action, { ...body, community: true }); toast(msg); renderCommunity(); renderSharing(); } catch (x) { toast(x.message, true); } };
+  async function loadCommunity() { try { S = await api('admin?community=1'); renderCommunity(); counts(); } catch (x) { toast(x.message, true); } }
+  const cact = async (action, body, msg) => { try { await act(action, { ...body, community: true }); toast(msg); renderCommunity(); renderSharing(); counts(); } catch (x) { toast(x.message, true); } };
   function renderCommunity() {
     const photos = S.photos || [];
     $('#photoEmpty').hidden = photos.length > 0;
     $('#photoGrid').innerHTML = photos.map(p => `<figure class="ph ${p.hidden ? 'hid' : ''}" data-uid="${esc(p.userId)}"><img src="${esc(p.src)}" alt="">
-      <figcaption><b>@${esc(p.username)}</b><small>${p.hidden ? 'Hidden · ' : ''}${p.reports ? `${p.reports} report${p.reports > 1 ? 's' : ''}` : ago(p.at) || ''}</small>
+      <figcaption><b>@${esc(p.username)}</b><small>${p.hidden ? 'Hidden · ' : ''}${p.reports ? `<span class="st-bad">⚠ Reported by ${p.reports}</span>` : 'Uploaded ' + (ago(p.at) || '')}</small>
       <span>${p.hidden || p.reports ? '<button class="btn ghost-btn sm" data-keep>Looks fine</button>' : ''}<button class="btn ghost-btn sm danger" data-rmphoto>Remove</button><button class="btn ghost-btn sm danger" data-banphoto>Remove + ban uploads</button></span></figcaption></figure>`).join('');
     const q = $('#userQ').value.trim().toLowerCase(), users = (S.users || []).filter(u => !q || u.username.toLowerCase().includes(q));
     $('#userEmpty').hidden = users.length > 0;
@@ -186,6 +186,72 @@
     const st = has('[data-settle]'); if (st) return cact('settleTreat', { id: tid, status: st.dataset.settle }, 'Treat updated');
   });
 
+  /* ---------- tab counters ---------- */
+  function counts() {
+    const rep = (S.users || []).filter(u => u.reports).length, fb = (S.feedback || []).filter(f => f.status === 'new').length;
+    $('#repN').hidden = !rep; $('#repN').textContent = rep; $('#fbN').hidden = !fb; $('#fbN').textContent = fb;
+    $('#pushN').textContent = S.push ? `${S.push.subscribers} phone${S.push.subscribers === 1 ? '' : 's'} have push notifications on.` : '';
+  }
+
+  /* ---------- Calendar ---------- */
+  const DOW = [[6, 'Sat'], [0, 'Sun'], [1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri']];
+  const dateTxt = d => new Date(d + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  function renderCalendar() {
+    const c = S.calendar || { openDays: [6, 0, 1, 2, 3], special: {} };
+    $('#openDays').innerHTML = DOW.map(([n, l]) => `<label class="daybox"><input type="checkbox" value="${n}" ${c.openDays.includes(n) ? 'checked' : ''}><span>${l}</span></label>`).join('');
+    const sp = Object.entries(c.special).filter(([d]) => d >= S.today).sort();
+    $('#specEmpty').hidden = sp.length > 0;
+    $('#specRows').innerHTML = sp.map(([d, x]) => `<tr data-day="${esc(d)}"><td><b>${dateTxt(d)}</b></td><td class="${x.open ? 'st-ok' : 'st-bad'}">${x.open ? 'Open (buses run)' : 'Closed (no buses)'}</td><td>${esc(x.note || '')}</td>
+      <td class="r"><button class="btn ghost-btn sm danger" data-delday>Remove</button></td></tr>`).join('');
+    const b = S.boost;
+    $('#boNow').textContent = b ? `Active / planned: ${b.label} · ${b.mult}× · ${dateTxt(b.from)} → ${dateTxt(b.to)}` : 'No boost planned.';
+    if (b && !$('#boFrom').value) { $('#boFrom').value = b.from; $('#boTo').value = b.to; $('#boMult').value = String(b.mult); $('#boLabel').value = b.label; }
+  }
+  $('#saveDays').addEventListener('click', async () => {
+    const days = [...document.querySelectorAll('#openDays input:checked')].map(x => Number(x.value));
+    try { await act('setOpenDays', { days }); toast('Normal week saved'); renderCalendar(); } catch (x) { toast(x.message, true); }
+  });
+  $('#specForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    try { await act('setSpecialDay', { day: $('#spDay').value, open: $('#spOpen').value === '1', note: $('#spNote').value }); $('#spNote').value = ''; toast('Special day saved'); renderCalendar(); }
+    catch (x) { toast(x.message, true); }
+  });
+  $('#specRows').addEventListener('click', async e => {
+    if (!e.target.closest('[data-delday]')) return;
+    try { await act('deleteSpecialDay', { day: e.target.closest('tr').dataset.day }); toast('Removed'); renderCalendar(); } catch (x) { toast(x.message, true); }
+  });
+  $('#boostForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    try { await act('setBoost', { from: $('#boFrom').value, to: $('#boTo').value, mult: Number($('#boMult').value), label: $('#boLabel').value }); toast('XP boost saved'); renderCalendar(); }
+    catch (x) { toast(x.message, true); }
+  });
+  $('#boClear').addEventListener('click', async () => {
+    try { await act('clearBoost'); ['#boFrom', '#boTo', '#boLabel'].forEach(s => ($(s).value = '')); toast('Boost removed'); renderCalendar(); } catch (x) { toast(x.message, true); }
+  });
+
+  /* ---------- Feedback ---------- */
+  const KIND = { bus: '🚌 Bus', driver: '🧑‍✈️ Driver / staff', schedule: '🕒 Schedule', app: '📱 App', idea: '💡 Idea', other: '💬 Other' };
+  function renderFeedback() {
+    const keep = $('#fbRoute').value;
+    $('#fbRoute').innerHTML = '<option value="">All routes</option><option value="-">No route</option>' + S.routes.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('');
+    $('#fbRoute').value = keep;
+    const rf = $('#fbRoute').value, sf = $('#fbStatus').value;
+    const list = (S.feedback || []).filter(f => (!rf || (rf === '-' ? !f.routeId : f.routeId === rf)) && (!sf || f.status === sf));
+    $('#fbEmpty').hidden = list.length > 0;
+    $('#fbList').innerHTML = list.map(f => `<article class="a-card fb ${f.status}" data-fid="${f.id}">
+      <div class="fb-top"><span class="pill info">${esc(routeName(f.routeId) === '—' ? 'No route' : routeName(f.routeId))}</span><span class="small">${KIND[f.kind] || esc(f.kind)}</span>
+        <span class="small muted">${fmtWhen(f.createdAt)} · ${f.username ? '@' + esc(f.username) : 'anonymous'}${f.contact ? ' · ' + esc(f.contact) : ''}</span></div>
+      <p class="ntext">${esc(f.message)}</p>
+      ${f.attachments.length ? `<p class="small">📎 ${f.attachments.length} attachment(s)</p>` : ''}
+      <div class="a-row end">${['new', 'seen', 'done'].map(s => `<button class="btn ghost-btn sm ${f.status === s ? 'cur' : ''}" data-fst="${s}">${{ new: 'New', seen: 'Seen', done: 'Done ✓' }[s]}</button>`).join('')}</div></article>`).join('');
+    counts();
+  }
+  $('#fbRoute').addEventListener('change', renderFeedback); $('#fbStatus').addEventListener('change', renderFeedback);
+  $('#fbList').addEventListener('click', async e => {
+    const b = e.target.closest('[data-fst]'); if (!b) return;
+    try { await act('setFeedback', { id: b.closest('[data-fid]').dataset.fid, status: b.dataset.fst }); renderFeedback(); } catch (x) { toast(x.message, true); }
+  });
+
   /* ---------- Notices ---------- */
   const fmtWhen = ts => new Date(ts).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
   function renderNotices() {
@@ -204,9 +270,9 @@
     e.preventDefault();
     const exp = $('#nExp').value ? new Date($('#nExp').value).getTime() : null;
     try {
-      await act('addNotice', { message: $('#nMsg').value, level: $('#nLevel').value, expiresAt: exp });
-      $('#nMsg').value = ''; $('#nExp').value = ''; $('#nCount').textContent = '0 / 500';
-      toast('Notice published to all apps'); renderNotices();
+      const j = await act('addNotice', { message: $('#nMsg').value, level: $('#nLevel').value, expiresAt: exp, push: $('#nPush').checked });
+      $('#nMsg').value = ''; $('#nExp').value = ''; $('#nCount').textContent = '0 / 500'; $('#nPush').checked = false;
+      toast(j.pushed != null ? `Notice published; push going to ${j.pushed} phone${j.pushed === 1 ? '' : 's'}` : 'Notice published to all apps'); renderNotices();
     } catch (x) { toast(x.message, true); }
   });
   $('#noticeRows').addEventListener('click', async e => {

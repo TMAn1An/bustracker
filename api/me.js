@@ -13,7 +13,7 @@ import { profile, checkUsername, EMOJIS, COLORS, finalizeWeeks, ACTIVE_MS, neede
 const SESSION_H = 60 * 24;               // 60 days; refreshed whenever the app opens with less than 30 days left
 const RENAME_MS = 7 * 24 * 3600e3;       // a username can change once a week (people confirm treats by username)
 const PHOTO_MAX = 24 * 1024;              // bytes after decoding (the app sends a 128x128 WebP/JPEG, usually 5-10 KB)
-const REPORT_HIDE = 3;                    // photos reported by 3 different people are hidden until an admin reviews them
+// One report is enough: the photo goes to the admin's review queue (admin dashboard -> Community) and the admin decides.
 
 const newKey = () => randomBytes(24).toString('base64url');
 const fail = (res, code, error) => res.status(code).json({ error });
@@ -159,17 +159,16 @@ export default async function handler(req, res) {
       ], 'write');
       break;
     }
-    case 'report': { // report someone's photo; hidden automatically after REPORT_HIDE different reports
+    case 'report': { // report someone's photo: it goes straight to the admin's review queue
       const target = String(body.userId || '');
       if (!target || target === id) return fail(res, 400, 'Bad request');
       if (!(await hit('report:' + id, 20, 24 * 3600e3))) return fail(res, 429, 'Too many reports today.');
       await db().execute({ sql: 'INSERT INTO reports (target, reporter, at) VALUES (?,?,?) ON CONFLICT DO NOTHING', args: [target, id, now] });
-      const n = Number((await db().execute({ sql: 'SELECT COUNT(*) AS n FROM reports WHERE target = ?', args: [target] })).rows[0].n);
-      if (n >= REPORT_HIDE) await db().batch([
-        { sql: 'UPDATE avatars SET hidden = 1 WHERE user_id = ?', args: [target] },
-        { sql: 'UPDATE users SET avatar_v = 0 WHERE id = ?', args: [target] },
-      ], 'write');
       return res.status(200).json({ ok: true });
+    }
+    case 'linkStudent': { // reserved: link this account to a university student ID once the student database is available
+      // Plan: verifyStudent(id, password) from ./_students.js -> UPDATE users SET student_id, verified_at (+ batch from the ID).
+      return fail(res, 501, 'Coming soon: linking your student ID opens when the university student database is connected.');
     }
     case 'delete': // remove the account and everything linked to it
       await db().batch(['contrib', 'avatars', 'reports', 'vouches', 'share_sessions', 'share_fixes'].map(t => ({

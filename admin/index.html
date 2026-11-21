@@ -39,7 +39,9 @@
         <button role="tab" data-tab="routes" aria-selected="false">Routes</button>
         <button role="tab" data-tab="notices" aria-selected="false">Notices</button>
         <button role="tab" data-tab="sharing" aria-selected="false">Sharing</button>
-        <button role="tab" data-tab="community" aria-selected="false">Community</button>
+        <button role="tab" data-tab="calendar" aria-selected="false">Calendar</button>
+        <button role="tab" data-tab="community" aria-selected="false">Community <b class="tabn" id="repN" hidden></b></button>
+        <button role="tab" data-tab="feedback" aria-selected="false">Feedback <b class="tabn" id="fbN" hidden></b></button>
       </nav>
       <button class="ghost light" id="aout">Sign out</button>
     </div>
@@ -113,10 +115,42 @@
     <div class="a-card a-table-wrap"><table class="a-table"><tbody id="blockRows"></tbody></table><p id="blockEmpty" class="muted a-empty" hidden>No blocked students.</p></div>
   </section>
 
+  <!-- Calendar: open days, special days, XP boost -->
+  <section id="tab-calendar" class="a-page" hidden>
+    <div class="a-head"><div><h2>University calendar</h2><p class="muted">Buses, sharing, timetable estimates and push reminders follow this calendar. On a special open day every bus runs.</p></div></div>
+    <div class="a-card a-form">
+      <b>Normal week: open on</b>
+      <div class="dayboxes" id="openDays"></div>
+      <div class="a-row"><button class="btn primary sm" id="saveDays" type="button">Save week</button><span class="muted small">Default: Saturday to Wednesday.</span></div>
+    </div>
+    <h3 class="a-sub">Special days</h3>
+    <form id="specForm" class="a-card a-form"><div class="a-row">
+      <label class="field"><span>Date</span><input type="date" id="spDay" required></label>
+      <label class="field"><span>Type</span><select id="spOpen"><option value="1">Open (exam, program…)</option><option value="0">Closed (holiday)</option></select></label>
+      <label class="field grow"><span>Note shown to students</span><input id="spNote" maxlength="60" placeholder="e.g. Final exam / Victory Day"></label>
+      <button class="btn primary sm">Add day</button></div></form>
+    <div class="a-card a-table-wrap" style="margin-top:8px"><table class="a-table"><thead><tr><th>Date</th><th>Type</th><th>Note</th><th class="r"></th></tr></thead><tbody id="specRows"></tbody></table>
+      <p id="specEmpty" class="muted a-empty" hidden>No special days. The normal week applies.</p></div>
+    <h3 class="a-sub">🔥 XP boost (e.g. double XP in exam week)</h3>
+    <form id="boostForm" class="a-card a-form"><div class="a-row">
+      <label class="field"><span>From</span><input type="date" id="boFrom" required></label><label class="field"><span>To</span><input type="date" id="boTo" required></label>
+      <label class="field"><span>Boost</span><select id="boMult"><option value="1.5">1.5×</option><option value="2" selected>2×</option><option value="3">3×</option></select></label>
+      <label class="field grow"><span>Label</span><input id="boLabel" maxlength="60" placeholder="Exam week double XP"></label>
+      <button class="btn primary sm">Save boost</button><button class="btn ghost-btn sm" type="button" id="boClear">Remove</button></div>
+      <p class="muted small" id="boNow"></p></form>
+  </section>
+
+  <!-- Feedback (only admins) -->
+  <section id="tab-feedback" class="a-page" hidden>
+    <div class="a-head"><div><h2>Feedback</h2><p class="muted">From riders, with the route they picked. Only admins see this.</p></div>
+      <div class="a-inline"><select id="fbRoute" aria-label="Filter by route"></select><select id="fbStatus" aria-label="Filter by status"><option value="">All</option><option value="new" selected>New</option><option value="seen">Seen</option><option value="done">Done</option></select></div></div>
+    <div id="fbList"></div><p id="fbEmpty" class="muted a-empty" hidden>No feedback here.</p>
+  </section>
+
   <!-- Community: contributors, photos, treats -->
   <section id="tab-community" class="a-page" hidden>
-    <div class="a-head"><div><h2>Community</h2><p class="muted">Contributors pick a username (no password). Photos reported by 3 riders are hidden automatically until you review them.</p></div></div>
-    <h3 class="a-sub">Photos to review</h3>
+    <div class="a-head"><div><h2>Community</h2><p class="muted">Contributors pick a username (no password). A single report puts a photo at the top here: keep it or remove it. <span id="pushN"></span></p></div></div>
+    <h3 class="a-sub">Photos (reported first)</h3>
     <div class="a-card"><div id="photoGrid" class="ph-grid"></div><p id="photoEmpty" class="muted a-empty" hidden>No photos yet.</p></div>
     <h3 class="a-sub">Contributors</h3>
     <div class="a-row"><input id="userQ" placeholder="Search username" aria-label="Search username"></div>
@@ -135,6 +169,7 @@
       <div class="a-row">
         <label class="field"><span>Type</span><select id="nLevel"><option value="info">Notice</option><option value="urgent">Urgent</option></select></label>
         <label class="field"><span>Hide after (optional)</span><input id="nExp" type="datetime-local"></label>
+        <label class="switch small"><input type="checkbox" id="nPush"><span></span>Also send as push notification</label>
         <span class="grow"></span>
         <span id="nCount" class="small muted">0 / 500</span>
         <button class="btn primary">Publish notice</button>

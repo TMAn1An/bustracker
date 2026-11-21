@@ -28,7 +28,13 @@
     explorer: ['🗺️', 'Explorer', 'Helped on 2 different routes'],
     champion: ['👑', 'Weekly Champion', 'Top contributor of a route for a week'],
     generous: ['🫖', 'Generous Senior', 'Treated a champion to tea or coffee'],
+    seat_scout: ['💺', 'Seat Scout', 'Reported free seats 5 times'],
+    route_war: ['⚔️', 'Route Warrior', 'Helped your route win a monthly route battle'],
   };
+  // shown first on leaderboards (rarest / most fun first)
+  const BADGE_ORDER = ['champion', 'route_war', 'generous', 'streak7', 'km100', 'trailblazer', 'streak3', 'full_ride', 'seat_scout', 'explorer', 'early_bird', 'night_owl', 'km10', 'contributor'];
+  const badgeRow = (ids, max = 4) => { const l = BADGE_ORDER.filter(b => (ids || []).includes(b)).slice(0, max);
+    return l.length ? `<span class="brow">${l.map(b => `<i title="${esc(BADGES[b][1])}">${BADGES[b][0]}</i>`).join('')}${(ids || []).length > max ? `<em>+${ids.length - max}</em>` : ''}</span>` : ''; };
   const EMOJIS = ['🚌', '🐯', '🦊', '🐼', '🐸', '🦉', '🐧', '🐨', '🦁', '🐵', '🐱', '🐶', '🦄', '🐲', '🐻', '🐰', '🐙', '🦖', '🐝', '🦜'];
   const COLORS = ['#0b6e1c', '#1d6fe0', '#8a3ffc', '#d92d20', '#f08a00', '#00a3a3', '#c2188a', '#5b6b00'];
   const USERNAME = /^[A-Za-z_][A-Za-z0-9_]{2,19}$/;
@@ -47,9 +53,13 @@
     if (!/[A-Za-z]/.test(v)) return 'Include at least one letter.';
     return null;
   }
+  // photos this phone reported: hidden here at once (the admin decides for everyone)
+  const hiddenAv = new Set((() => { try { return JSON.parse(localStorage.getItem('iubat_hidden_av') || '[]'); } catch { return []; } })());
+  function hideAvatar(id) { hiddenAv.add(id); try { localStorage.setItem('iubat_hidden_av', JSON.stringify([...hiddenAv].slice(-100))); } catch {} }
   /** Avatar: the uploaded photo if any, else the emoji on its colour. */
   function avatar(u, size = 36, cls = '') {
     if (!u) return '';
+    if (hiddenAv.has(u.id)) u = { ...u, avatarV: 0 };
     const st = `width:${size}px;height:${size}px;font-size:${Math.round(size * 0.56)}px`;
     if (u.avatarV) return `<span class="av ${cls}" style="${st};--c:${esc(u.color)}"><img src="api/avatar?id=${encodeURIComponent(u.id)}&v=${u.avatarV}" alt="" loading="lazy" onerror="this.remove()">${esc(u.emoji || '🚌')}</span>`;
     return `<span class="av ${cls}" style="${st};--c:${esc(u.color || '#0b6e1c')}">${esc(u.emoji || '🚌')}</span>`;
@@ -86,7 +96,7 @@
   const saved = local.get() || {};
   const Social = {
     token: saved.token || null, key: saved.key || null, me: saved.me || null, onChange: () => {},
-    LEVELS, BADGES, EMOJIS, COLORS, level, checkName, avatar, heatmap, makePhoto, esc,
+    LEVELS, BADGES, EMOJIS, COLORS, level, checkName, avatar, hideAvatar, heatmap, makePhoto, esc, badgeRow,
     get joined() { return !!this.token; },
 
     _save() { local.set({ token: this.token, key: this.key, me: this.me }); this.onChange(this); },
@@ -132,5 +142,45 @@
     cachedUser(id) { return this._users[id]?.v || null; },
     async thank(busId) { return this._api('board', { action: 'thank', busId }, false); },
   };
+  /* ---------- Web Push: works without an account (reminders for my route) ---------- */
+  const PKEY = 'iubat_push';
+  const b64ToBytes = b => { const s = atob((b + '='.repeat((4 - b.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(s, c => c.charCodeAt(0)); };
+  const Push = {
+    prefs: (() => { try { return JSON.parse(localStorage.getItem(PKEY) || 'null'); } catch { return null; } })() || { on: false, remind: true, treat: true, notices: true },
+    supported: () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window,
+    /** iPhone/iPad: push works only after "Add to Home Screen" (iOS 16.4+) */
+    needsInstall: () => /iphone|ipad|ipod/i.test(navigator.userAgent) && !(matchMedia('(display-mode: standalone)').matches || navigator.standalone),
+    _save() { try { localStorage.setItem(PKEY, JSON.stringify(this.prefs)); } catch {} },
+    async _sub(create) {
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub && create) {
+        const { key } = await Social._api('push', null, false);
+        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
+      }
+      return sub;
+    },
+    /** Turn on (asks permission) or update: route + stop decide which departure reminder you get. */
+    async enable(extra = {}) {
+      if (!this.supported()) throw new Error('This browser cannot show notifications.');
+      if (this.needsInstall()) throw new Error('On iPhone: tap Share → Add to Home Screen, open the app from there, then turn notifications on.');
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') throw new Error('Notifications are blocked. Allow them in your browser settings for this site.');
+      Object.assign(this.prefs, extra, { on: true }); this._save();
+      return this.sync(true);
+    },
+    async sync(create, routeId = this.route, stop = this.stop) {
+      if (!this.prefs.on || !this.supported() || Notification.permission !== 'granted') return;
+      const sub = await this._sub(create); if (!sub) return;
+      await Social._api('push', { action: 'subscribe', subscription: sub.toJSON(), routeId, stop, remind: this.prefs.remind, treat: this.prefs.treat, notices: this.prefs.notices });
+    },
+    async disable() {
+      this.prefs.on = false; this._save();
+      try { const sub = await this._sub(false); if (sub) { await Social._api('push', { action: 'unsubscribe', endpoint: sub.endpoint }, false).catch(() => {}); await sub.unsubscribe(); } } catch {}
+    },
+    async test() { const sub = await this._sub(false); if (!sub) throw new Error('Turn notifications on first.'); return Social._api('push', { action: 'test', endpoint: sub.endpoint }, false); },
+    route: null, stop: null, // set by the app (my route / my stop)
+  };
+  Social.Push = Push;
   window.Social = Social;
 })();

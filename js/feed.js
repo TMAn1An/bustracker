@@ -72,12 +72,26 @@
   const Feed = {
     campus: null, routes: [], notices: [], crowdEnabled: false, rev: null, offset: 0, ok: true, onStatus: () => {}, onRoutes: () => {}, onPoll: () => {},
     state: new Map(), timer: null, running: false, trips: new Map(), riders: {}, windows: { am: [360, 720], pm: [1020, 1320] }, turnstile: null,
+    calendar: { openDays: [6, 0, 1, 2, 3], special: {} }, boost: null,
     parseDays, hm,
     /** Bangladesh time now (server clock): { day: weekday 0-6, min: minutes since midnight } */
     now() { return dhaka(Date.now() + this.offset); },
     /** 'am' (to campus), 'pm' (from campus) during the sharing windows, else null */
     legNow() { const m = this.now().min, w = this.windows; return m >= w.am[0] && m < w.am[1] ? 'am' : m >= w.pm[0] && m < w.pm[1] ? 'pm' : null; },
     trip(busId, leg) { return this.trips.get(busId + ':' + leg) || null; },
+    /** Bangladesh date (YYYY-MM-DD), offset in days from today */
+    date(add = 0) { return new Date(Date.now() + this.offset + 6 * 3600e3 + add * 864e5).toISOString().slice(0, 10); },
+    /** University calendar: special day (exam / program / holiday) or the normal week (Sat–Wed by default) */
+    special(day = this.date()) { return this.calendar.special[day] || null; },
+    isOpen(day = this.date()) { const s = this.special(day); return s ? s.open : this.calendar.openDays.includes(new Date(day + 'T00:00:00Z').getUTCDay()); },
+    /** Does this bus run on that day? Special open days: every bus. Otherwise the university must be open and the bus's own days allow it. */
+    busRuns(sched, day = this.date()) {
+      const s = this.special(day); if (s) return s.open;
+      const dow = new Date(day + 'T00:00:00Z').getUTCDay();
+      if (!this.calendar.openDays.includes(dow)) return false;
+      const d = parseDays(sched?.days); return !d || d.has(dow);
+    },
+    boostNow() { const b = this.boost, d = this.date(); return b && d >= b.from && d <= b.to ? b : null; },
 
     /** Load routes and bus->route assignment (public). Safe to call again when `rev` changes. */
     async load() {
@@ -100,6 +114,8 @@
       this.crowdEnabled = !!j.crowdEnabled;
       if (j.windows) this.windows = j.windows;
       this.turnstile = j.turnstile || null;
+      if (j.calendar) this.calendar = j.calendar;
+      this.boost = j.boost || null;
       this.offset = j.now - Date.now();
       this.notices = (j.notices || []).map(n => ({ ...n, expiresLocal: n.expiresAt ? n.expiresAt - (j.now - Date.now()) : null }));
       this.onRoutes(this);
@@ -189,8 +205,8 @@
       st.estAt = now; st.est = null;
       const r = st.r, sc = st.schedule;
       if (!r || !sc) return null;
-      const t = dhaka(now + this.offset), days = parseDays(sc.days);
-      if (days && !days.has(t.day)) return null;
+      const t = dhaka(now + this.offset);
+      if (!this.busRuns(sc)) return null; // university closed, or not this bus's day
       const done = leg => this.trip(st.id, leg)?.state === 'arrived'; // the bus already reached the end of this trip today
       const tripMin = (r.length / 1000) / EST_KMH * 60 + Math.max(0, r.stops.length - 2) * STOP_MIN;
       // Inbound trip with pick-up times on the stops: follow the real timetable stop by stop.
