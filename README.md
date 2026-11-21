@@ -15,6 +15,8 @@ Open to everyone, free to run, and ready to fork for your own university.
 ![PWA](https://img.shields.io/badge/app-installable%20PWA-5a0fc8)
 ![No API keys](https://img.shields.io/badge/maps-OpenStreetMap%2C%20no%20API%20key-7ebc6f)
 
+<sub>If this helps your campus, a ⭐ on GitHub helps other students find it.</sub>
+
 <img src="docs/screenshots/1-home.jpg" width="200" alt="Home: my route countdown and all routes"> <img src="docs/screenshots/3-route.jpg" width="200" alt="A route with its live bus"> <img src="docs/screenshots/4-ranking.jpg" width="200" alt="Contributor ranking"> <img src="docs/screenshots/5-treats.jpg" width="200" alt="Treat board">
 
 </div>
@@ -59,6 +61,7 @@ You can run your own copy in about 30 minutes, for free. No server to manage.
 
 ### Credit & community
 This project is MIT licensed: use it, change it, ship it. If it helps your campus:
+- ⭐ star the repository, so other students searching for a campus bus tracker can find it;
 - keep the small *"Open source · build one for your university"* link in the app footer, so the next university can find it too;
 - open a pull request adding your university to the list below (with your live link). Every campus on the list makes the project more useful for the next one;
 - improvements you make for your campus (new features, translations, fixes) are very welcome as pull requests: see [CONTRIBUTING.md](CONTRIBUTING.md).

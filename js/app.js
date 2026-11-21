@@ -471,7 +471,7 @@
   // Open source: lets students of other universities find the project (and see who built it)
   function footer() {
     return `<footer class="pfoot"><a href="${REPO}" target="_blank" rel="noopener">${ico('git')}Open source · build one for your university</a>
-      <span><a href="/privacy.html">Privacy</a> · <a href="${REPO}#use-it-at-your-university" target="_blank" rel="noopener">How to fork</a></span></footer>`;
+      <span><a href="/privacy.html">Privacy</a> · <a href="${REPO}#use-it-at-your-university" target="_blank" rel="noopener">How to fork</a> · <a href="${REPO}" target="_blank" rel="noopener">⭐ Star on GitHub</a></span></footer>`;
   }
   /** Special days (exam / program / holiday) today or tomorrow, and double-XP events */
   function dayBanner() {

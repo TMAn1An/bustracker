@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use or adapt this project, please cite it (or link back to the repository)."
+title: "IUBAT Bus Tracker: a live, crowd-powered campus bus tracker"
+type: software
+authors:
+  - alias: TMAn1An
+repository-code: "https://github.com/TMAn1An/bustracker"
+url: "https://bustracker.iubat.workers.dev"
+license: MIT
+keywords: [bus tracker, campus, university, crowdsourcing, pwa, cloudflare workers, openstreetmap, bangladesh]
