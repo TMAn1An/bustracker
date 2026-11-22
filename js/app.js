@@ -533,8 +533,9 @@
     dlg.dataset.bus = busId;
   }
   /** For everyone (most people only watch): a clear button that shows this bus on the map and keeps it in view. */
+  const onMap = b => b && !b.noData && (b.status !== 'offline' || (b.lastUpdateSec ?? 1e9) < 3 * 3600); // see feed.js STALE_S
   function seeBtn(b) {
-    if (!b || b.noData) return '';
+    if (!onMap(b)) return '';
     const live = b.status === 'running' || b.status === 'stopped', off = b.status === 'offline';
     const title = off ? `See where Bus ${b.id} was last seen` : `See Bus ${b.id} on the map`;
     const sub = live ? `<i class="dot run"></i>Live · ${b.source === 'crowd' ? 'a rider on board is sharing' : 'bus phone'} · ${lastSeen(b)}`
@@ -552,7 +553,7 @@
   function mapCard() {
     const el = $('#mapcard'); if (!el) return;
     const b = view.name === 'route' && snap.find(x => x.id === (view.busId || '')) || (view.name === 'route' && view.routeId && bestBus(busesOn(view.routeId)));
-    const show = b && !b.noData && (!isMobile() || !$('#panel').classList.contains('open'));
+    const show = onMap(b) && (!isMobile() || !$('#panel').classList.contains('open'));
     let html = '';
     if (show) {
       const live = b.status === 'running' || b.status === 'stopped', off = b.status === 'offline';
@@ -746,7 +747,7 @@
 
   function busDetail(b, r) {
     const head = `<div class="d-head"><span class="badge ${b.status}">${esc(b.id)}</span><div><h2>Bus ${esc(b.id)}</h2><span class="pill ${b.status}">${b.jamMin ? `🚦 In traffic · ${b.jamMin} min` : STATUS[b.status] + (b.atStop && b.status === 'stopped' ? ' · ' + esc(b.atStop) : '')}</span>${(b.noRoute || b.noData) ? '' : ` <span class="pill dir">${dirText(b)}</span>`}</div></div>`;
-    if (b.noData) return head + `<p class="muted-p">No live location yet. It appears as soon as the bus phone or a rider on board shares.</p>` + (r ? stopsOnly(r) : '');
+    if (b.noData || !onMap(b)) return head + `<p class="muted-p">${b.noData ? 'No live location yet.' : `No live location right now (last seen ${lastSeen(b)}).`} The bus appears on the map as soon as the bus phone or a rider on board shares. On this bus? Tap <b>Share location</b>.</p>` + (r ? stopsOnly(r) : '');
     if (b.noRoute) return head + `<p class="muted-p">No route assigned yet. Live position is shown on the map.</p>`;
     const off = b.status === 'offline', est = b.status === 'estimated';
     const next = off ? 'Offline' : (b.nextStop ? esc(b.nextStop.name) : 'Arrived');

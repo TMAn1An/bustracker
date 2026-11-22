@@ -30,7 +30,7 @@ the sharers are rewarded with XP, badges, a leaderboard and (the fun part) a wee
 ## Features
 | | |
 |---|---|
-| 🗺️ **Live 3D map** | Every route and bus, where it is, where it is going, next stop, ETA; timetable estimate when no one is sharing |
+| 🗺️ **Live 3D map** | Every route and bus, where it is, where it is going, next stop, ETA. A bus moves only on a real location (bus phone or a verified rider); without one it stays where it was last seen, marked Offline |
 | 📍 **Crowd-sourced location** | Riders share from their phone; the server verifies it (on the route, moving like a bus, no jumps) |
 | ⏰ **Reminders** | Web Push 20 minutes before your bus leaves (from *your* stop), even with the app closed |
 | 🏆 **XP, levels, badges** | 10 XP per km, 14 badges, GitHub-style contribution graph, daily / weekly / all-time ranking |
@@ -241,7 +241,12 @@ the student ID (and the batch from the ID). Nothing else needs to change.
 never while the app is hidden. Leaderboards are cached 20 s per Worker instance and 60 s on the phone. If daily traffic approaches Cloudflare's
 100,000 requests/day, Workers Paid ($5/month, 10M requests) removes the limit.
 
-## 3D buses and timetable estimates
+## No guessing: buses move only on real locations
+Timetable estimates and "keep moving from the last live position" are switched off (`ESTIMATE` / `PREDICT` in `js/feed.js`):
+a bus moves on the map only when the bus phone or a verified rider sends a location. Without a live signal it stays where it was last
+seen (grey, **Offline**, "last seen 5 min ago"), and after 3 hours it is not drawn at all. Stop times (☀️/🌙) are still shown as the timetable.
+
+## 3D buses and timetable estimates (switched off)
 - Buses are drawn as real 3D models (yellow IUBAT bus with windows, wheels, red stripe and lights) using three.js inside a MapLibre
   custom layer (`js/bus3d.js`). three.js loads after the map is ready; if it cannot load, simple 3D boxes are shown instead.
 - When a bus has **no live signal**, the app estimates where it should be from its timetable (departure time and days set in the admin
