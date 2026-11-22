@@ -94,10 +94,10 @@
     // a parked/waiting bus gets no new GPS events: re-send the last fix so it does not look offline
     const pos = pending || lastPos;
     if (!pos || Date.now() - last < MIN_GAP) return;
-    const { coords: c } = pos, timestamp = pending ? pending.timestamp : Date.now(); pending = null; last = Date.now();
+    const { coords: c } = pos, fresh = !!pending, timestamp = fresh ? pending.timestamp : Date.now(); pending = null; last = Date.now();
     try {
       const r = await fetch(API, { method: 'POST', headers: { 'content-type': 'application/json' }, keepalive: true,
-        body: JSON.stringify({ token, lat: c.latitude, lng: c.longitude, speed: c.speed ?? undefined, heading: c.heading ?? undefined, acc: c.accuracy, ts: timestamp }) });
+        body: JSON.stringify({ token, lat: c.latitude, lng: c.longitude, speed: fresh ? (c.speed ?? undefined) : 0, heading: c.heading ?? undefined, acc: c.accuracy, ts: timestamp }) });
       if (r.status === 401) { setSt('Invalid token', 'bad'); return; }
       if (!r.ok) throw new Error(r.status);
       sent++; fails = 0;

@@ -70,12 +70,15 @@
     async _flush() {
       // A phone that is not moving gets no new GPS events, so re-send the last position:
       // the server needs it to show a bus waiting in traffic and to notice a rider who got off.
-      const pos = this.pending || this.lastPos;
+      const pos = this.pending || this.lastPos, fresh = !!this.pending;
       if (!pos || Date.now() - this.last < SEND_MS) return;
       const { coords: c } = pos; this.pending = null; this.last = Date.now();
+      // No new GPS event since the last send = the phone (bus) is standing still: send speed 0, never the old speed,
+      // or the map would keep pushing the bus forward in a traffic jam.
+      const speed = fresh ? (c.speed ?? undefined) : 0;
       try {
         const res = await fetch('api/share', { method: 'POST', headers: { 'content-type': 'application/json', Authorization: 'Bearer ' + this.token },
-          body: JSON.stringify({ busId: this.busId, lat: c.latitude, lng: c.longitude, acc: c.accuracy, speed: c.speed ?? undefined, heading: c.heading ?? undefined }) });
+          body: JSON.stringify({ busId: this.busId, lat: c.latitude, lng: c.longitude, acc: c.accuracy, speed, heading: c.heading ?? undefined }) });
         const j = await res.json().catch(() => ({}));
         if (!res.ok) { this.stop(); this._set(null, j.error || 'Sharing stopped.', true); return; }
         if (j.xp != null && j.xp > this.xp) { const gain = j.xp - this.xp; this.xp = j.xp; this.onXp(gain, j.xp); }
@@ -83,7 +86,7 @@
         this.progress = j.status === 'checking' && j.progress != null ? j.progress : null;
         if (j.status === 'arrived') { await this.stop(true); this.busId = null; this._set(null, `${j.message}${this.xp ? ` You earned ${this.xp} XP on this ride.` : ''}`); return; }
         if (j.status === 'verified' && window.Feed) { // your fix is now the bus's position: show it at once instead of waiting for the next poll
-          Feed.ingest({ id: this.busId, lat: c.latitude, lng: c.longitude, speed: c.speed ?? null, heading: c.heading ?? null, ts: Date.now() + Feed.offset - 3000, source: 'crowd' });
+          Feed.ingest({ id: this.busId, lat: c.latitude, lng: c.longitude, speed: j.speed ?? speed ?? null, heading: c.heading ?? null, ts: Date.now() + Feed.offset - 3000, source: 'crowd' });
           Feed.poll();
         }
         this._set(j.status, j.message);

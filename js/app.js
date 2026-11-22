@@ -696,7 +696,7 @@
     if (b.noRoute) return head + `<p class="muted-p">No route assigned yet. Live position is shown on the map.</p>`;
     const off = b.status === 'offline', est = b.status === 'estimated';
     const next = off ? 'Offline' : (b.nextStop ? esc(b.nextStop.name) : 'Arrived');
-    const estNote = est && b.estByLast ? `<div class="estnote"><b>Live signal lost ${b.lostMin ? b.lostMin + ' min' : 'a moment'} ago.</b> The rider sharing this bus stopped or went offline, so we keep moving it from its last live position at its usual speed. It may be ahead or behind. On this bus? Share to help everyone.</div>`
+    const estNote = est && b.estByLast ? `<div class="estnote"><b>Live signal lost ${b.lostMin ? b.lostMin + ' min' : 'a moment'} ago.</b> The rider sharing this bus stopped or went offline${b.estHeld ? '. It was standing still (traffic or a stop), so we keep it where it was for now' : ', so we keep moving it from its last live position at its usual speed'}. It may be ahead or behind. On this bus? Share to help everyone.</div>`
       : est ? `<div class="estnote"><b>No live signal right now.</b> This position is estimated from the timetable (left ${esc(short(b.from))} at ${t12(b.estDepart)}${b.estByStops ? ', following the stop pick-up times' : ', assuming about 22 km/h'}). The real bus may be ahead or behind.</div>` : '';
     return `${head}${estNote}
       <div class="journey">
