@@ -30,9 +30,10 @@
     generous: ['🫖', 'Generous Senior', 'Treated a champion to tea or coffee'],
     seat_scout: ['💺', 'Seat Scout', 'Reported free seats 5 times'],
     route_war: ['⚔️', 'Route Warrior', 'Helped your route win a monthly route battle'],
+    mapper: ['📍', 'Map Maker', 'Suggested a stop the transport office added'],
   };
   // shown first on leaderboards (rarest / most fun first)
-  const BADGE_ORDER = ['champion', 'route_war', 'generous', 'streak7', 'km100', 'trailblazer', 'streak3', 'full_ride', 'seat_scout', 'explorer', 'early_bird', 'night_owl', 'km10', 'contributor'];
+  const BADGE_ORDER = ['champion', 'route_war', 'generous', 'mapper', 'streak7', 'km100', 'trailblazer', 'streak3', 'full_ride', 'seat_scout', 'explorer', 'early_bird', 'night_owl', 'km10', 'contributor'];
   const badgeRow = (ids, max = 4) => { const l = BADGE_ORDER.filter(b => (ids || []).includes(b)).slice(0, max);
     return l.length ? `<span class="brow">${l.map(b => `<i title="${esc(BADGES[b][1])}">${BADGES[b][0]}</i>`).join('')}${(ids || []).length > max ? `<em>+${ids.length - max}</em>` : ''}</span>` : ''; };
   const EMOJIS = ['🚌', '🐯', '🦊', '🐼', '🐸', '🦉', '🐧', '🐨', '🦁', '🐵', '🐱', '🐶', '🦄', '🐲', '🐻', '🐰', '🐙', '🦖', '🐝', '🦜'];
@@ -146,7 +147,7 @@
   const PKEY = 'iubat_push';
   const b64ToBytes = b => { const s = atob((b + '='.repeat((4 - b.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(s, c => c.charCodeAt(0)); };
   const Push = {
-    prefs: (() => { try { return JSON.parse(localStorage.getItem(PKEY) || 'null'); } catch { return null; } })() || { on: false, remind: true, treat: true, notices: true },
+    prefs: (() => { try { return JSON.parse(localStorage.getItem(PKEY) || 'null'); } catch { return null; } })() || { on: false, remind: true, remindPm: false, treat: false, notices: true },
     supported: () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window,
     /** iPhone/iPad: push works only after "Add to Home Screen" (iOS 16.4+) */
     needsInstall: () => /iphone|ipad|ipod/i.test(navigator.userAgent) && !(matchMedia('(display-mode: standalone)').matches || navigator.standalone),
@@ -172,7 +173,7 @@
     async sync(create, routeId = this.route, stop = this.stop) {
       if (!this.prefs.on || !this.supported() || Notification.permission !== 'granted') return;
       const sub = await this._sub(create); if (!sub) return;
-      await Social._api('push', { action: 'subscribe', subscription: sub.toJSON(), routeId, stop, remind: this.prefs.remind, treat: this.prefs.treat, notices: this.prefs.notices });
+      await Social._api('push', { action: 'subscribe', subscription: sub.toJSON(), routeId, stop, remind: !!this.prefs.remind, remindPm: !!this.prefs.remindPm, treat: !!this.prefs.treat, notices: !!this.prefs.notices });
     },
     async disable() {
       this.prefs.on = false; this._save();

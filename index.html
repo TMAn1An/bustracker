@@ -76,6 +76,12 @@
       </div>
       <div class="conn" id="conn" hidden>Connection lost, retrying&hellip;</div>
       <div class="ntoast" id="ntoast" role="status" hidden></div>
+      <!-- Suggest a stop: the map moves under a fixed pin -->
+      <div class="pickbar" id="pickbar" hidden>
+        <b id="pickTitle">Move the map so the pin is on the stop</b>
+        <span id="pickInfo" class="pick-info"></span>
+        <div class="pick-act"><button class="btn ghost-b sm" id="pickCancel">Cancel</button><button class="btn ghost-b sm" id="pickMe">📍 My location</button><button class="btn primary sm" id="pickNext">Next</button></div>
+      </div>
     </section>
   </div>
 </div>
@@ -105,9 +111,9 @@
     <div class="field"><span>Pick your avatar</span><div class="emojis" id="jEmoji" role="radiogroup" aria-label="Avatar"></div></div>
     <div class="row2">
       <label class="field"><span>My route</span><select id="jRoute"></select></label>
-      <label class="field"><span>Batch <em>(optional)</em></span><input id="jBatch" inputmode="numeric" maxlength="4" placeholder="e.g. 2023"></label>
+      <label class="field"><span>Batch <em>(optional)</em></span><input id="jBatch" inputmode="numeric" maxlength="6" placeholder="e.g. 232"></label>
     </div>
-    <small class="fhint">Batch = admission year. The most senior riders of a route get invited to treat its weekly champion ☕</small>
+    <small class="fhint">Your batch number (e.g. 232); a lower number = more senior. The most senior riders of a route get invited to treat its weekly champion ☕ Usernames are first come, first served, and can change only once every 90 days.</small>
     <div id="jTs"></div>
     <p class="err" id="jErr" role="alert" hidden></p>
     <div class="row"><button type="button" class="btn ghost-b" id="jLater">Later</button><button class="btn primary" id="jGo">Let's go</button></div>
@@ -132,6 +138,19 @@
     <input id="restoreVal" class="keybox" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Recovery code" aria-label="Recovery code">
     <p class="err" id="restoreErr" role="alert" hidden></p>
     <div class="row"><button type="button" class="btn ghost-b" id="restoreCancel">Cancel</button><button class="btn primary">Restore</button></div>
+  </form>
+</dialog>
+
+<dialog id="suggestDlg" class="sdlg">
+  <form id="suggestForm">
+    <h3>Suggest a stop</h3>
+    <p class="dp" id="sgRoute"></p>
+    <div class="sg-est" id="sgEst"></div>
+    <label class="field"><span>Stop name</span><input id="sgName" maxlength="60" placeholder="e.g. Board Bazar footbridge" required></label>
+    <label class="field"><span>Note for the transport office <em>(optional)</em></span><textarea id="sgNote" rows="2" maxlength="300" placeholder="e.g. Many students wait here every morning"></textarea></label>
+    <p class="fhint">The transport office checks every suggestion. If it's added, you get the 📍 Map Maker badge.</p>
+    <p class="err" id="sgErr" role="alert" hidden></p>
+    <div class="row"><button type="button" class="btn ghost-b" id="sgBack">Back to map</button><button class="btn primary" id="sgSend">Send</button></div>
   </form>
 </dialog>
 

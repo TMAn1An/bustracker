@@ -200,3 +200,13 @@ small.also:empty { display: none; }
 .a-stops-head, .a-stops li, .a-stops li.campus { grid-template-columns: 28px 1fr 136px auto; }
 .a-stops input.tm { width: 136px; }
 @media (max-width: 860px) { .a-stops li, .a-stops-head { grid-template-columns: 26px 1fr 128px; } .a-stops input.tm { width: 128px; } }
+/* stop suggestions */
+.a-sug { grid-column: 1 / -1; padding: 14px 16px; border-color: #f2d36b; background: #fffdf5; }
+.a-sug-head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin-bottom: 8px; }
+.sug { display: flex; flex-wrap: wrap; gap: 10px 16px; justify-content: space-between; align-items: center; padding: 12px 0; border-top: 1px solid #f3e7bf; }
+.sug-main { display: flex; gap: 10px; min-width: 0; flex: 1 1 420px; } .sug-main > i { width: 6px; border-radius: 3px; background: var(--rc); flex: none; }
+.sug-main small { display: block; color: var(--muted); font-size: 12.5px; margin-top: 3px; } .sug-note { font-style: italic; color: var(--ink-2) !important; }
+.sug-name { font: inherit; font-weight: 700; font-size: 15px; padding: 6px 9px; border: 1px solid #e3d9b3; border-radius: 8px; width: min(360px, 100%); background: #fff; }
+.sug-act { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; } .sug-time { font: inherit; padding: 6px 8px; border: 1px solid #cfd6cd; border-radius: 8px; width: 128px; }
+#sugDoneList { margin: 6px 0 0; padding-left: 18px; } #sugDone summary { cursor: pointer; margin-top: 8px; color: var(--muted); }
+.a-pin.sugpin { background: #f08a00; }

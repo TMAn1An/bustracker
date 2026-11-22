@@ -36,7 +36,7 @@
   async function start() {
     S = await api('admin');
     $('#signin').hidden = true; $('#adminApp').hidden = false;
-    renderBuses(); renderRouteList(); renderNotices(); renderSharing(); renderCalendar(); renderFeedback(); counts();
+    renderBuses(); renderRouteList(); renderNotices(); renderSharing(); renderCalendar(); renderFeedback(); renderSuggestions(); counts();
     setInterval(async () => { if (!$('#tab-sharing').hidden && !document.hidden) { try { S = await api('admin'); renderSharing(); } catch {} } }, 10000);
   }
 
@@ -154,6 +154,7 @@
   async function loadCommunity() { try { S = await api('admin?community=1'); renderCommunity(); counts(); } catch (x) { toast(x.message, true); } }
   const cact = async (action, body, msg) => { try { await act(action, { ...body, community: true }); toast(msg); renderCommunity(); renderSharing(); counts(); } catch (x) { toast(x.message, true); } };
   function renderCommunity() {
+    if (document.activeElement?.closest('#batchForm') == null) { $('#bMin').value = S.batchRange?.min || ''; $('#bMax').value = S.batchRange?.max || ''; }
     const photos = S.photos || [];
     $('#photoEmpty').hidden = photos.length > 0;
     $('#photoGrid').innerHTML = photos.map(p => `<figure class="ph ${p.hidden ? 'hid' : ''}" data-uid="${esc(p.userId)}"><img src="${esc(p.src)}" alt="">
@@ -173,6 +174,10 @@
       <td class="r">${t.status === 'pending' ? '<button class="btn ghost-btn sm" data-settle="paid">Mark given</button><button class="btn ghost-btn sm danger" data-settle="cancelled">Cancel</button>' : '<button class="btn ghost-btn sm" data-settle="pending">Reopen</button>'}</td></tr>`).join('');
   }
   $('#userQ').addEventListener('input', renderCommunity);
+  $('#batchForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    try { await act('setBatchRange', { min: $('#bMin').value.trim(), max: $('#bMax').value.trim() }); toast('Batch range saved'); } catch (x) { toast(x.message, true); }
+  });
   $('#tab-community').addEventListener('click', e => {
     const uid = e.target.closest('[data-uid]')?.dataset.uid, tid = e.target.closest('[data-tid]')?.dataset.tid, has = s => e.target.closest(s);
     if (has('[data-keep]')) return cact('keepPhoto', { userId: uid }, 'Photo kept');
@@ -184,6 +189,52 @@
     if (has('[data-ublockit]')) { if (confirm('Block this rider from sharing location? They also disappear from leaderboards.')) cact('blockSharer', { studentId: uid }, 'Sharing blocked'); return; }
     if (has('[data-ublock]')) return cact('unblockSharer', { studentId: uid }, 'Unblocked');
     const st = has('[data-settle]'); if (st) return cact('settleTreat', { id: tid, status: st.dataset.settle }, 'Treat updated');
+  });
+
+  /* ---------- stops suggested by riders ---------- */
+  let sugMarker = null;
+  const hhmm12 = v => { if (!v) return '—'; const [h, m] = v.split(':').map(Number); return `${(h % 12) || 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`; };
+  function renderSuggestions() {
+    const all = S.suggestions || [], pend = all.filter(g => g.status === 'pending'), done = all.filter(g => g.status !== 'pending');
+    $('#sugBox').hidden = !all.length;
+    $('#sugN').hidden = !pend.length; $('#sugN').textContent = pend.length;
+    $('#sugList').innerHTML = pend.length ? pend.map(g => { const r = S.routes.find(x => x.id === g.routeId);
+      return `<div class="sug" data-sid="${g.id}" style="--rc:${esc(r?.color || '#999')}">
+        <div class="sug-main"><i></i><div><input class="sug-name" value="${esc(g.name)}" maxlength="60" aria-label="Stop name">
+          <small>${esc(r?.name || 'Unknown route')} · by ${g.username ? '@' + esc(g.username) : 'a rider'} · ${fmtWhen(g.createdAt)}</small>
+          <small>${g.between?.[0] && g.between?.[1] ? `Between <b>${esc(g.between[0])}</b> and <b>${esc(g.between[1])}</b> · ` : ''}${g.km} km to campus · ☀️ ~${hhmm12(g.am)} · 🌙 ~${hhmm12(g.pm)}${g.off > 300 ? ` · <span class="st-bad">${g.off} m off the route</span>` : ''}</small>
+          ${g.note ? `<small class="sug-note">“${esc(g.note)}”</small>` : ''}</div></div>
+        <div class="sug-act"><input class="sug-time" type="time" title="Pick-up time (optional; empty = estimated automatically)" aria-label="Pick-up time">
+          <button class="btn ghost-btn sm" data-sg="map">Show</button><button class="btn ghost-btn sm" data-sg="edit">Edit first</button>
+          <button class="btn primary sm" data-sg="ok">Approve</button><button class="btn ghost-btn sm danger" data-sg="no">Reject</button></div></div>`; }).join('')
+      : '<p class="muted small" style="margin:6px 0">No new suggestions.</p>';
+    $('#sugDone').hidden = !done.length;
+    $('#sugDoneList').innerHTML = done.slice(0, 30).map(g => `<li>${g.status === 'approved' ? '✅' : '✖️'} <b>${esc(g.name)}</b> · ${esc(S.routes.find(x => x.id === g.routeId)?.name || '')}${g.adminNote ? ` · “${esc(g.adminNote)}”` : ''}</li>`).join('');
+  }
+  $('#sugList').addEventListener('click', async e => {
+    const b = e.target.closest('[data-sg]'); if (!b) return;
+    const box = b.closest('[data-sid]'), g = S.suggestions.find(x => x.id === +box.dataset.sid), name = box.querySelector('.sug-name').value.trim(), time = box.querySelector('.sug-time').value;
+    try {
+      if (b.dataset.sg === 'map' || b.dataset.sg === 'edit') {
+        const r = S.routes.find(x => x.id === g.routeId); if (!r) return toast('The route no longer exists.', true);
+        if (dirty && !confirm('Discard unsaved changes?')) return;
+        edit({ id: r.id, name: r.name, color: r.color, stops: r.stops.map(({ approx, ...s }) => ({ ...s, ...(approx ? { auto: true } : {}) })) }, false);
+        await initMap();
+        if (b.dataset.sg === 'edit') { E.suggestionId = g.id; addStop({ name: name || g.name, lat: g.lat, lng: g.lng, ...(time ? { time } : {}) }, 'smart'); toast('Added to the stop list: drag it, rename it, then Save route.'); }
+        else { sugMarker?.remove(); const el = document.createElement('div'); el.className = 'a-pin sugpin'; el.textContent = '?'; sugMarker = new maplibregl.Marker({ element: el }).setLngLat([g.lng, g.lat]).addTo(map); }
+        map.flyTo({ center: [g.lng, g.lat], zoom: 15 }); $('.a-mapbox').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+      if (b.dataset.sg === 'ok') {
+        if (!confirm(`Add "${name}" to ${S.routes.find(x => x.id === g.routeId)?.name}?`)) return;
+        const j = await act('approveSuggestion', { id: g.id, name, time: time || null });
+        toast(`Added as stop ${j.position} on ${j.routeName}${j.snapped ? '' : ' (road service unavailable: straight lines)'}`);
+      } else {
+        const why = prompt('Reason (optional, the rider sees it):', ''); if (why === null) return;
+        await act('rejectSuggestion', { id: g.id, note: why }); toast('Suggestion rejected');
+      }
+      sugMarker?.remove(); renderSuggestions(); renderRouteList(); if (E && E.id === g.routeId) { const r = S.routes.find(x => x.id === E.id); edit({ id: r.id, name: r.name, color: r.color, stops: r.stops.map(({ approx, ...s }) => ({ ...s, ...(approx ? { auto: true } : {}) })) }, false); }
+    } catch (x) { toast(x.message, true); }
   });
 
   /* ---------- tab counters ---------- */
@@ -270,6 +321,7 @@
     e.preventDefault();
     const exp = $('#nExp').value ? new Date($('#nExp').value).getTime() : null;
     try {
+      if ($('#nPush').checked && $('#nLevel').value !== 'urgent') { toast('Push is only for urgent notices. Set Type to Urgent, or untick push.', true); return; }
       const j = await act('addNotice', { message: $('#nMsg').value, level: $('#nLevel').value, expiresAt: exp, push: $('#nPush').checked });
       $('#nMsg').value = ''; $('#nExp').value = ''; $('#nCount').textContent = '0 / 500'; $('#nPush').checked = false;
       toast(j.pushed != null ? `Notice published; push going to ${j.pushed} phone${j.pushed === 1 ? '' : 's'}` : 'Notice published to all apps'); renderNotices();
@@ -470,6 +522,7 @@
       $('#rMsg').textContent = j.snapped ? `Saved · ${j.km.toFixed(1)} km, snapped to roads` : 'Saved · road service unavailable, drawn as straight lines';
       if (j.warn) { $('#rMsg').textContent += ' · Check: ' + j.warn; toast(j.warn, true); }
       toast('Route saved'); renderRouteList(); renderBuses(); drawRoute();
+      if (E.suggestionId) { const sid = E.suggestionId; E.suggestionId = null; await act('markSuggestion', { id: sid, status: 'approved' }); renderSuggestions(); toast('Route saved · suggestion marked as added'); }
     } catch (x) { toast(x.message, true); }
     btn.disabled = false; btn.textContent = 'Save route';
   });

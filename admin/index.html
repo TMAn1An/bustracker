@@ -36,7 +36,7 @@
     <div class="top-right" id="topMenu">
       <nav class="tabs" role="tablist">
         <button role="tab" data-tab="buses" aria-selected="true">Buses</button>
-        <button role="tab" data-tab="routes" aria-selected="false">Routes</button>
+        <button role="tab" data-tab="routes" aria-selected="false">Routes <b class="tabn" id="sugN" hidden></b></button>
         <button role="tab" data-tab="notices" aria-selected="false">Notices</button>
         <button role="tab" data-tab="sharing" aria-selected="false">Sharing</button>
         <button role="tab" data-tab="calendar" aria-selected="false">Calendar</button>
@@ -68,6 +68,12 @@
 
   <!-- Routes -->
   <section id="tab-routes" class="a-page a-routes" hidden>
+    <!-- Stops suggested by riders -->
+    <div class="a-card a-sug" id="sugBox" hidden>
+      <div class="a-sug-head"><strong>📍 Stops suggested by riders</strong><span class="small muted">Approve adds the stop to its route at the right place and re-snaps the route. "Edit first" opens it in the editor.</span></div>
+      <div id="sugList"></div>
+      <details class="small" id="sugDone"><summary>Reviewed suggestions</summary><ul id="sugDoneList"></ul></details>
+    </div>
     <aside class="a-card a-rlist">
       <div class="a-rlist-head"><strong>Routes</strong><button class="btn primary sm" id="newRoute">+ New route</button></div>
       <ul id="routeList"></ul>
@@ -162,6 +168,10 @@
     <div class="a-head"><div><h2>Community</h2><p class="muted">Contributors pick a username (no password). A single report puts a photo at the top here: keep it or remove it. <span id="pushN"></span></p></div></div>
     <h3 class="a-sub">Photos (reported first)</h3>
     <div class="a-card"><div id="photoGrid" class="ph-grid"></div><p id="photoEmpty" class="muted a-empty" hidden>No photos yet.</p></div>
+    <form id="batchForm" class="a-card a-form"><div class="a-row">
+      <label class="field"><span>Allowed batch from</span><input id="bMin" inputmode="numeric" maxlength="6" placeholder="e.g. 191"></label>
+      <label class="field"><span>to</span><input id="bMax" inputmode="numeric" maxlength="6" placeholder="e.g. 253"></label>
+      <button class="btn primary sm">Save batch range</button><span class="small muted grow">Batch numbers like 232 (lower = more senior). Leave both empty for no limit.</span></div></form>
     <h3 class="a-sub">Contributors</h3>
     <div class="a-row"><input id="userQ" placeholder="Search username" aria-label="Search username"></div>
     <div class="a-card a-table-wrap" style="margin-top:8px"><table class="a-table"><thead><tr><th>User</th><th>Route</th><th>XP</th><th>Last seen</th><th>Flags</th><th class="r"></th></tr></thead><tbody id="userRows"></tbody></table>
@@ -179,7 +189,7 @@
       <div class="a-row">
         <label class="field"><span>Type</span><select id="nLevel"><option value="info">Notice</option><option value="urgent">Urgent</option></select></label>
         <label class="field"><span>Hide after (optional)</span><input id="nExp" type="datetime-local"></label>
-        <label class="switch small"><input type="checkbox" id="nPush"><span></span>Also send as push notification</label>
+        <label class="switch small" title="Only urgent notices are pushed, so nobody gets bothered by routine ones"><input type="checkbox" id="nPush"><span></span>Urgent: also send as push</label>
         <span class="grow"></span>
         <span id="nCount" class="small muted">0 / 500</span>
         <button class="btn primary">Publish notice</button>

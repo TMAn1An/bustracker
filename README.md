@@ -211,6 +211,27 @@ The same tab sets an **XP boost** (e.g. *Exam week double XP*, 1.5×/2×/3× bet
 - **Feedback**: anyone can send feedback (route, topic, message, optional contact; sent as their username or anonymously). Only admins see it
   (admin → Feedback, filter by route, mark New / Seen / Done). The `attachments` column is reserved for photos/videos later.
 
+## Stops suggested by riders
+- On a route, **📍 A stop is missing? Suggest it**: the map moves under a fixed pin (or *My location*), and the app shows live the distance
+  to campus, the neighbouring stops and the **estimated times for both trips** (☀️ to campus, 🌙 home). Name + optional note → sent.
+  Max 6 a day per rider; no duplicates within 120 m of a stop or another pending suggestion.
+- **Admin → Routes**: *Stops suggested by riders* (counter on the tab). **Approve** inserts the stop at the right place in the driving order
+  and re-snaps the route; **Edit first** opens it in the route editor (drag, rename, set a time, then Save route); **Reject** with an optional
+  reason the rider sees in their profile. An added suggestion earns the 📍 *Map Maker* badge.
+
+## Estimated times at every stop
+Stops without a pick-up time get an estimate for **both trips** (`server/_eta.js`, same logic in `js/feed.js`): morning = interpolated
+between the stops that have times (otherwise departure + distance at the route's average speed), evening = campus departure + distance back.
+Shown as `~6:52 AM` on the route; *my stop* reminders work at any stop.
+
+## Notifications: only what you ask for
+Morning reminder at **your stop** (on by default once notifications are on), evening reminder before the bus leaves campus (off),
+route news such as champion / treat report / battle (off), and **urgent** transport notices (on). Admins can push only *urgent* notices.
+
+## Batch numbers and usernames
+Batch is the university's batch number (e.g. 232; lower = more senior). Admin → Community can set an allowed range (empty = no limit).
+Usernames are first come, first served (live *available / taken* check) and can change once every 90 days.
+
 ## Student ID link (ready, not active)
 `users.student_id` / `verified_at` columns, a ✔ verified tick in the UI, and the `linkStudent` action in `server/me.js` (returns *coming soon*)
 are in place. When the university database arrives: implement `verifyStudent()` in `server/_students.js`, then make `linkStudent` call it and save

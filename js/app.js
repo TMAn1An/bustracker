@@ -213,7 +213,7 @@
     if (q('[data-user]')) return go({ name: 'user', userId: q('[data-user]').dataset.user, from: { ...view } });
     if (q('[data-route]')) return openRoute(q('[data-route]').dataset.route);
     if (q('[data-bus]')) return openBus(q('[data-bus]').dataset.bus);
-    if (q('[data-share]')) return askShare(q('[data-share]').dataset.share);
+    if (q('[data-share]')) { const el = q('[data-share]'); return el.dataset.closed ? toast(`Sharing is closed right now: ${el.dataset.closed}.`) : askShare(el.dataset.share); }
     if (q('[data-unshare]')) {
       // Stopping before the end of the trip: fine (you keep your XP), but if you're the only sharer, say what happens.
       const leg = Feed.legNow(), tr = leg && Feed.trip(Share.busId, leg);
@@ -233,6 +233,7 @@
     if (q('[data-pushtest]')) return run(() => P.test(), 'Test sent: it should pop up in a few seconds.');
     if (q('[data-inapp]')) return toggleRemind();
     if (q('[data-seats]')) return reportSeats(q('[data-seats]').dataset.seats);
+    if (q('[data-suggest]')) return startPick(q('[data-suggest]').dataset.suggest);
     if (q('[data-feedback]')) return go({ name: 'feedback', routeId: q('[data-feedback]').dataset.feedback || view.routeId || myRoute, from: { ...view } });
     if (q('[data-student]')) return toast('Coming soon: link your student ID for a ✔ verified badge once the university database is connected.');
     if (q('[data-join]')) return openJoin();
@@ -332,7 +333,8 @@
     if (!b) return { kind: 'none', title: 'No bus assigned yet' };
     const t = Feed.now(), sc = b.schedule || {}, runs = Feed.busRuns(sc), special = Feed.special();
     const am = Feed.trip(b.id, 'am'), pm = Feed.trip(b.id, 'pm'), first = r ? short(r.stops[0].name) : 'the first stop';
-    const stopName = r && myStops[r.id], stop = stopName && r.stops.find(s => s.name === stopName && s.time);
+    const stopName = r && myStops[r.id], stopT = r && stopName && Feed.routeTimes(r.id)?.byName[stopName];
+    const stop = stopT && stopT.am && { name: stopName, time: stopT.am, est: !stopT.scheduled };
     const pmDep = Feed.hm(sc.departCampus);
     if (b.status === 'running' || b.status === 'stopped')
       return { kind: 'live', title: b.inbound ? `🟢 On the way to campus · ${b.destEtaText}` : `🟢 Heading to ${short(b.to)} · ${b.destEtaText}`, sub: b.nextStop ? `Next stop ${b.nextStop.name} · ${b.nextEtaText}` : '' };
@@ -341,7 +343,7 @@
       return { kind: 'done', title: `✅ Reached campus at ${clock(am.arrivedAt)}`, sub: sc.departCampus ? `Leaves campus at ${t12(sc.departCampus)}` : '' };
     if (!runs) return { kind: 'off', title: special && !special.open ? `🏖️ ${special.note || 'Holiday'}: no bus today` : '😴 No bus today', sub: nextBusDay(sc) };
     const legs = [
-      { leg: 'am', dep: stop ? Feed.hm(stop.time) : Feed.hm(sc.departStart), where: stop ? stop.name : first, trip: am },
+      { leg: 'am', dep: stop ? Feed.hm(stop.time) : Feed.hm(sc.departStart), where: stop ? stop.name + (stop.est ? ' (est.)' : '') : first, trip: am },
       { leg: 'pm', dep: pmDep, where: 'campus', trip: pm },
     ];
     for (const L of legs) {
@@ -411,9 +413,10 @@
   /* ---------- crowd sharing ---------- */
   function askShare(busId) {
     if (!S.joined) return openJoin(() => askShare(busId));
+    if (local.get('iubat_share_ok')) return Share.start(busId, S.token); // the explanation is shown only the first time
     const dlg = $('#shareDlg');
     dlg.returnValue = '';
-    dlg.onclose = () => { if (dlg.returnValue === 'yes') Share.start(busId, S.token); };
+    dlg.onclose = () => { if (dlg.returnValue === 'yes') { local.set('iubat_share_ok', 1); Share.start(busId, S.token); } };
     dlg.showModal();
   }
   const SH_CLASS = { verified: 'ok', backup: 'ok', checking: 'wait', starting: 'wait', weak_gps: 'wait', paused: 'wait', full: 'wait', off_route: 'bad', jump: 'bad', disagree: 'bad', wrong_way: 'bad' };
@@ -443,16 +446,19 @@
     } catch (e) { toast(e.message, true); }
   }
 
+  /** The main action on a route: a big "share location" button, always visible; when sharing is closed it says when it opens. */
   function shareCta(b) {
-    if (!Feed.crowdEnabled || b.noRoute || Share.active) return '';
-    if (!Feed.busRuns(b.schedule)) { const sp = Feed.special(); return `<div class="sharecta off"><p>${sp && !sp.open ? `🏖️ ${esc(sp.note || 'Holiday')}: ` : '😴 '}no bus today, so sharing is closed.</p></div>`; }
-    const leg = Feed.legNow(), w = Feed.windows;
-    if (!leg) return `<div class="sharecta off"><p>📍 Riders can share this bus from <b>${m12(w.am[0])}</b> until it reaches campus, and from <b>${m12(w.pm[0])}</b> until it reaches the end of its route.</p></div>`;
-    const tr = Feed.trip(b.id, leg);
-    if (tr?.state === 'arrived') return `<div class="sharecta off"><p>✅ This trip is done (${leg === 'am' ? 'reached campus' : 'reached the end of the route'} at ${clock(tr.arrivedAt)}). Sharing opens again ${leg === 'am' ? `at ${m12(w.pm[0])}` : 'tomorrow morning'}.</p></div>`;
-    const riders = Feed.riders[b.id] || 0;
-    if (riders >= 3) return `<div class="sharecta"><div><b>3 riders are sharing Bus ${esc(b.id)} 🙌</b><p>That's the limit for one bus. On it too? Wait for a slot: you start automatically when one frees up.</p></div><button class="btn ghost-b sm" data-share="${esc(b.id)}">Wait for a slot</button></div>`;
-    return `<div class="sharecta"><div><b>On this bus? Be the hero 🦸</b><p>${riders ? `${riders} rider${riders > 1 ? 's are' : ' is'} sharing. Join as backup and earn XP.` : `Share your location so everyone can see where Bus ${esc(b.id)} is${b.status === 'offline' || b.status === 'estimated' ? ' (no live signal right now)' : ''}. Earn XP!`}</p></div><button class="btn primary sm" data-share="${esc(b.id)}">Share location</button></div>`;
+    if (!b || b.noRoute || (Share.active && Share.busId === b.id)) return '';
+    if (!Feed.crowdEnabled) return `<div class="sharebig off"><span class="sb-ic">📍</span><span><b>Location sharing is paused</b><small>The transport office has turned it off for now.</small></span></div>`;
+    const leg = Feed.legNow(), w = Feed.windows, m = Feed.now().min, riders = Feed.riders[b.id] || 0;
+    let open = false, title = 'Share location', sub = '';
+    if (!Feed.busRuns(b.schedule)) { const sp = Feed.special(); sub = sp && !sp.open ? `${sp.note || 'Holiday'}: no bus today` : 'No bus today'; }
+    else if (!leg) sub = m < w.am[0] ? `Opens at ${m12(w.am[0])} for the trip to campus` : m < w.pm[0] ? `Opens at ${m12(w.pm[0])} for the trip home` : `Opens tomorrow at ${m12(w.am[0])}`;
+    else if (Feed.trip(b.id, leg)?.state === 'arrived') sub = leg === 'am' ? `This trip reached campus. Opens again at ${m12(w.pm[0])}` : 'This trip is done. Opens again tomorrow morning';
+    else if (riders >= 3) { open = true; title = '3 riders are already sharing'; sub = 'On this bus too? Wait for a slot: you start automatically when one frees up'; }
+    else { open = true; title = `I'm on Bus ${b.id}: share location`; sub = riders ? `${riders} rider${riders > 1 ? 's are' : ' is'} sharing · join as backup and earn XP` : `Help everyone see where the bus is · earn XP`; }
+    return `<button class="sharebig ${open ? '' : 'off'}" data-share="${esc(b.id)}" ${open ? '' : `data-closed="${esc(sub)}"`}><span class="sb-ic">📍</span>
+      <span><b>${esc(title)}</b><small>${esc(sub)}</small></span>${open ? '<em>Start</em>' : ''}</button>`;
   }
   function thankBtn(b) {
     const leg = Feed.legNow(), tr = leg && Feed.trip(b.id, leg);
@@ -494,9 +500,11 @@
   }
   const monthName = m => new Date(m + '-01T00:00:00Z').toLocaleString('en', { month: 'long', timeZone: 'UTC' });
   function battleRows(list, max) {
-    return list.slice(0, max).map((x, i) => { const r = Feed.routes.find(y => y.id === x.routeId); if (!r) return '';
-      return `<button class="brow2" data-route="${esc(r.id)}" style="--route:${esc(r.color)}"><span class="bn">${rankBadge(i)}${esc(r.name)}</span>
-        <span class="bbar"><i style="width:${x.pct}%"></i></span><b>${x.pct}%</b></button>`; }).join('');
+    const started = list.some(x => x.covered > 0); // nobody covered a trip yet: no ranks, no medals
+    return list.slice(0, max).map(x => { const r = Feed.routes.find(y => y.id === x.routeId); if (!r) return '';
+      return `<button class="brow2" data-route="${esc(r.id)}" style="--route:${esc(r.color)}">${started && x.covered ? rankBadge((x.rank || 1) - 1) : '<span class="rk">–</span>'}
+        <span class="bn"><b>${esc(r.name)}</b><small>${x.covered}/${x.scheduled} trips live · ${x.riders} rider${x.riders === 1 ? '' : 's'}</small></span>
+        <span class="bscore"><b>${x.pct}%</b><span class="bbar"><i style="width:${x.pct}%"></i></span></span></button>`; }).join('');
   }
   function achievements() {
     const list = S.cachedBoard(null)?.recent || []; if (!list.length) return '';
@@ -592,21 +600,23 @@
     let html = back + `<div class="r-head" style="--route:${r ? esc(r.color) : '#9aa29b'}"><span class="rbar"></span><div class="grow1"><h2>${title}</h2>
       <span class="rsub">${r ? `${esc(short(r.stops[0].name))} <span class="arrow">⇄</span> IUBAT Campus` : 'No route assigned yet'}</span></div>
       ${r ? `<button class="star ${myRoute === r.id ? 'on' : ''}" data-star="${esc(r.id)}" aria-pressed="${myRoute === r.id}">${myRoute === r.id ? '★ My route' : '☆ My route'}</button>` : ''}</div>`;
+    html += shareCta(b);
     if (r) html += reputationLine(r.id) + treatBanner(r.id);
     if (list.length > 1) html += `<div class="seg" role="tablist">${list.map(x => `<button role="tab" data-bus="${esc(x.id)}" aria-selected="${x.id === b.id}"><i class="dot ${({ running: 'run', stopped: 'stop', estimated: 'est' })[x.status] || 'off'}"></i>Bus ${esc(x.id)}</button>`).join('')}</div>`;
-    if (!b) return html + `<p class="muted-p">No bus is assigned to this route yet.</p>` + (r ? stopsOnly(r) : '');
+    if (!b) return html + `<p class="muted-p">No bus is assigned to this route yet.</p>` + (r ? stopsOnly(r) + `<button class="fbtn sg" data-suggest="${esc(r.id)}">📍 A stop is missing? Suggest it</button>` : '');
     const sched = schedLine(b), st = tripStatus(b, r);
     if (sched) html += `<div class="sched">${ICON_CLOCK}<span>${sched}</span></div>`;
     if (st.kind === 'soon' || st.kind === 'done') html += `<div class="tripchip ${st.kind}"><b>${esc(st.title)}</b>${st.sub ? `<span>${esc(st.sub)}</span>` : ''}</div>`;
     if (r && myRoute === r.id) html += remindRow(r);
-    return html + busDetail(b, r) + (r ? routeTop(r.id) : '') + `<button class="fbtn" data-feedback="${r ? esc(r.id) : ''}">${ico('chat')}Feedback about this route</button>`;
+    return html + busDetail(b, r) + (r ? `<button class="fbtn sg" data-suggest="${esc(r.id)}">📍 A stop is missing? Suggest it</button>` + routeTop(r.id) : '') + `<button class="fbtn" data-feedback="${r ? esc(r.id) : ''}">${ico('chat')}Feedback about this route</button>`;
   }
   function remindRow(r) {
-    const timed = r.stops.filter(s => s.time);
+    const T = Feed.routeTimes(r.id), opts = r.stops.slice(0, -1).filter(s => T?.byName[s.name]?.am);
     const on = remind || pushOn();
     return `<div class="remindrow"><button class="mc-bell ${on ? 'on' : ''}" data-remind>${on ? '🔔' : '🔕'}</button>
       <span>${pushOn() ? `Push reminder ${REMIND_MIN} min before it leaves` : on ? `In-app reminder ${REMIND_MIN} min before` : `Remind me ${REMIND_MIN} min before it leaves`}</span>
-      ${timed.length ? `<select data-mystop="${esc(r.id)}" aria-label="My stop"><option value="">from the first stop</option>${timed.map(s => `<option ${myStops[r.id] === s.name ? 'selected' : ''} value="${esc(s.name)}">at ${esc(s.name)} (${t12(s.time)})</option>`).join('')}</select>` : ''}</div>`;
+      ${opts.length ? `<select data-mystop="${esc(r.id)}" aria-label="My stop"><option value="">from the first stop</option>${opts.map(s => { const x = T.byName[s.name];
+        return `<option ${myStops[r.id] === s.name ? 'selected' : ''} value="${esc(s.name)}">at ${esc(s.name)} (${x.scheduled ? '' : '~'}${t12(x.am)})</option>`; }).join('')}</select>` : ''}</div>`;
   }
   function routeTop(routeId) {
     const B = S.cachedBoard(routeId); if (!B) return '';
@@ -614,11 +624,16 @@
     return `<div class="section-title">This week on this route</div>` + (list.length ? `<ol class="mini">${list.map((u, i) => `<li><button data-user="${esc(u.id)}">${rankBadge(i)} ${S.avatar(u, 28)} ${at(u)}<span>${u.pts} XP</span></button></li>`).join('')}</ol>`
       : '<p class="muted-p">Nobody has shared this week yet. First come, first crowned 👑</p>') + `<button class="link more" data-board="week">Full leaderboard ›</button>`;
   }
-  const stopsOnly = r => `<div class="section-title">Route stops</div><ol class="timeline">${r.stops.map(s => `<li class="upcoming"><i></i><div class="nm"><span>${esc(s.name)}</span><span class="tm">${s.time ? t12(s.time) : ''}</span></div></li>`).join('')}</ol>`;
+  // Each stop: morning time to campus (scheduled, or ~estimated from distance) and evening time from campus.
+  const stopTimes = (r, name, leg) => { const x = Feed.routeTimes(r.id)?.byName[name]; if (!x) return '';
+    const v = leg === 'pm' ? x.pm : x.am; return v ? (leg === 'am' && x.scheduled ? '' : '~') + t12(v) : ''; };
+  const stopsOnly = r => `<div class="section-title">Route stops <span class="st-legend">☀️ to campus · 🌙 home</span></div><ol class="timeline">${r.stops.map(s => `<li class="upcoming"><i></i><div class="nm"><span>${esc(s.name)}</span>
+    <span class="tm two"><b>☀️ ${stopTimes(r, s.name, 'am') || '—'}</b><small>🌙 ${stopTimes(r, s.name, 'pm') || '—'}</small></span></div></li>`).join('')}</ol>
+    <p class="fhint">~ = estimated from the distance along the route and the timetable.</p>`;
 
   function busDetail(b, r) {
     const head = `<div class="d-head"><span class="badge ${b.status}">${esc(b.id)}</span><div><h2>Bus ${esc(b.id)}</h2><span class="pill ${b.status}">${STATUS[b.status]}${b.atStop && b.status === 'stopped' ? ' · ' + esc(b.atStop) : ''}</span>${(b.noRoute || b.noData) ? '' : ` <span class="pill dir">${dirText(b)}</span>`}</div></div>`;
-    if (b.noData) return head + shareCta(b) + `<p class="muted-p">No live location yet. It appears as soon as the bus phone or a rider on board shares.</p>` + (r ? stopsOnly(r) : '');
+    if (b.noData) return head + `<p class="muted-p">No live location yet. It appears as soon as the bus phone or a rider on board shares.</p>` + (r ? stopsOnly(r) : '');
     if (b.noRoute) return head + `<p class="muted-p">No route assigned yet. Live position is shown on the map.</p>`;
     const off = b.status === 'offline', est = b.status === 'estimated';
     const next = off ? 'Offline' : (b.nextStop ? esc(b.nextStop.name) : 'Arrived');
@@ -630,7 +645,7 @@
         <div class="track" aria-hidden="true"><div class="fill" style="width:${(b.progress * 100).toFixed(1)}%"></div><div class="bus" style="left:${(b.progress * 100).toFixed(1)}%">${ICON_BUS}</div></div>
         <div class="j-foot">${off ? '<b>No signal</b> · last seen ' + lastSeen(b) : '<b>' + (b.inbound ? 'Heading to campus' : 'Leaving campus') + '</b> · ' + srcText(b)}</div>
       </div>
-      ${seatsPill(b.id) ? `<div class="seatline">${seatsPill(b.id)}</div>` : ''}${thankBtn(b)}${shareCta(b)}
+      ${seatsPill(b.id) ? `<div class="seatline">${seatsPill(b.id)}</div>` : ''}${thankBtn(b)}
       <div class="stats">
         <div class="stat hot"><small>Arrives in</small><strong>${b.destEtaText}</strong></div>
         <div class="stat warm"><small>Next stop</small><strong style="font-size:16px">${next}</strong>${!off && b.nextStop ? `<em> · ${b.nextEtaText}</em>` : ''}</div>
@@ -641,7 +656,7 @@
       <ol class="timeline">
         ${b.stops.map(s => `
           <li class="${s.state}"><i></i>
-            <div class="nm"><span>${esc(s.name)}${s.state === 'here' ? ' <span class="tag">Here</span>' : ''}${s.state === 'next' ? ' <span class="tag">Next</span>' : ''}${r && myStops[r.id] === s.name ? ' <span class="tag mine">My stop</span>' : ''}${s.time && b.inbound ? `<small class="sched-t">${t12(s.time)}</small>` : ''}</span>
+            <div class="nm"><span>${esc(s.name)}${s.state === 'here' ? ' <span class="tag">Here</span>' : ''}${s.state === 'next' ? ' <span class="tag">Next</span>' : ''}${r && myStops[r.id] === s.name ? ' <span class="tag mine">My stop</span>' : ''}${r && stopTimes(r, s.name, b.inbound ? 'am' : 'pm') ? `<small class="sched-t">${b.inbound ? '☀️' : '🌙'} ${stopTimes(r, s.name, b.inbound ? 'am' : 'pm')}</small>` : ''}</span>
               <span class="tm">${s.state === 'passed' ? 'Passed' : s.state === 'here' ? 'Now' : off ? '' : fmt(s.etaMin)}</span></div>
           </li>`).join('')}
       </ol>`;
@@ -669,7 +684,8 @@
       <li>⚡ <b>10 XP per km</b> you share while the bus moves (checked automatically).</li>
       <li>🚩 <b>+5</b> for being the first rider to share a trip; 🏁 <b>+15</b> for sharing it to the end.</li>
       <li>🛟 Half XP while you are a backup (bus phone or another rider is already live).</li>
-      <li>👑 The weekly #1 of each route (Sat–Fri) wins a badge and a ☕ invitation from the most senior riders.</li></ul></details>`;
+      <li>👑 The weekly #1 of each route (Sat–Fri) wins a badge and a ☕ invitation from the most senior riders.</li>
+      <li>⚖️ Equal XP: whoever reached it first ranks higher (also for the weekly champion).</li></ul></details>`;
     if (B.champions.length) html += `<div class="section-title">Hall of champions</div><ol class="mini">${B.champions.slice(0, 8).map(c => `<li><button data-user="${esc(c.user.id)}">${S.avatar(c.user, 28)} ${at(c.user)}<span>${esc(routeName(c.routeId))} · week of ${new Date(c.week + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}</span></button></li>`).join('')}</ol>`;
     html += achievements();
     return html;
@@ -679,8 +695,9 @@
     const B = S.cachedBoard(null) || {}, list = B.battle || [];
     let html = `<div class="battle big"><div class="bt-head"><b>${ico('swords')}Route battle · ${monthName((B.day || Feed.date()).slice(0, 7))}</b></div>
       <p class="small">Which route keeps its bus live? Score = share of this month's bus trips where at least one rider shared. Every trip counts, big or small route.</p>
-      ${list.length ? battleRows(list, 20) : '<p class="muted-p">No trips yet this month.</p>'}
-      ${list.length ? `<small>${list.map(x => `${esc(routeName(x.routeId))}: ${x.covered}/${x.scheduled} trips · ${x.riders} rider${x.riders === 1 ? '' : 's'}`).join(' · ')}</small>` : ''}</div>`;
+      ${list.length && !list.some(x => x.covered) ? '<p class="bt-empty">🏁 No route has a live trip yet this month. Share your bus once and your route takes the lead!</p>' : ''}
+      ${list.length ? battleRows(list, 40) : '<p class="muted-p">No trips yet this month.</p>'}
+      <small>Same score = same rank. Routes without a bus are not counted.</small></div>`;
     html += `<p class="small muted-p">🏆 The winner is announced on the 1st. Everyone who shared on the winning route gets the ⚔️ Route Warrior badge.</p>`;
     if (B.battleWins?.length) html += `<div class="section-title">Past winners</div><ol class="mini">${B.battleWins.map(w => `<li><button data-route="${esc(w.routeId)}">🏆 ${esc(routeName(w.routeId))}<span>${monthName(w.month)} · ${Math.round(w.pct)}%</span></button></li>`).join('')}</ol>`;
     return html;
@@ -726,8 +743,9 @@
     const r = Feed.routes.find(x => x.id === myRoute);
     let html = back + `<div class="bhead"><h2>${ico('bell')}Notifications</h2></div>`;
     if (!r) html += `<label class="pickroute"><span>⭐ First pick your route</span><select data-myroute><option value="">Choose…</option>${Feed.routes.map(x => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select></label>`;
-    const timed = r ? r.stops.filter(s => s.time) : [];
-    if (r && timed.length) html += `<label class="nrow"><span>Remind me at</span><select data-mystop="${esc(r.id)}"><option value="">the first stop</option>${timed.map(s => `<option ${myStops[r.id] === s.name ? 'selected' : ''} value="${esc(s.name)}">${esc(s.name)} (${t12(s.time)})</option>`).join('')}</select></label>`;
+    const T = r && Feed.routeTimes(r.id), opts = r ? r.stops.slice(0, -1).filter(s => T?.byName[s.name]?.am) : [];
+    if (r && opts.length) html += `<label class="nrow"><span>My stop</span><select data-mystop="${esc(r.id)}"><option value="">the first stop</option>${opts.map(s => { const x = T.byName[s.name];
+      return `<option ${myStops[r.id] === s.name ? 'selected' : ''} value="${esc(s.name)}">${esc(s.name)} (${x.scheduled ? '' : '~'}${t12(x.am)})</option>`; }).join('')}</select></label>`;
     if (!P.supported()) {
       html += `<p class="estnote">This browser cannot receive push notifications. Install the app (Chrome on Android, or Safari → Add to Home Screen on iPhone).</p>`;
     } else if (P.needsInstall()) {
@@ -739,9 +757,11 @@
         <button class="btn primary sm" data-pushon ${r ? '' : 'disabled'}>Turn on notifications</button></div></div>`;
     } else {
       const sw = (k, l, d) => `<label class="switch2"><input type="checkbox" data-pushpref="${k}" ${P.prefs[k] ? 'checked' : ''}><span></span><div><b>${l}</b><small>${d}</small></div></label>`;
-      html += `<div class="pform card2">${sw('remind', `⏰ Departure reminder`, `${REMIND_MIN} min before your bus leaves${myStops[myRoute] ? ` ${esc(myStops[myRoute])}` : ''} (morning) and campus (evening), on bus days only`)}
-        ${sw('treat', '👑 Champion & ☕ treat news', 'Weekly champion (Saturday), treat report (Sunday), route battle winner')}
-        ${sw('notices', '📢 Transport notices', 'Important notices from the transport office')}
+      html += `<div class="pform card2"><p class="small">You only get what you switch on here. Nothing else.</p>
+        ${sw('remind', `☀️ Morning: my stop`, `${REMIND_MIN} min before the bus reaches ${myStops[myRoute] ? esc(myStops[myRoute]) : 'the first stop (pick your stop above)'}, on bus days only`)}
+        ${sw('remindPm', '🌙 Evening: leaving campus', `${REMIND_MIN} min before the bus leaves campus`)}
+        ${sw('notices', '🚨 Urgent notices', 'Only urgent messages from the transport office (e.g. bus cancelled)')}
+        ${sw('treat', '👑 Route news (optional)', 'Weekly champion, treat report and route battle for your route')}
         <div class="inrow"><button class="btn ghost-b sm" data-pushtest>Send a test</button><button class="link danger" data-pushoff>Turn off</button></div></div>`;
     }
     html += `<label class="switch2 inapp"><input type="checkbox" data-inapp ${remind ? 'checked' : ''}><span></span><div><b>In-app reminder</b><small>A banner ${REMIND_MIN} min before, while the app is open</small></div></label>`;
@@ -792,14 +812,16 @@
     html += (p.owed || []).map(o => `<form class="claim" data-form="claim" data-route="${esc(o.routeId)}"><span class="tbig">☕</span><div>
       <b>You're owed ☕×${o.cups} on ${esc(routeName(o.routeId))}!</b><p>Got your tea/coffee from a senior? Enter their username to confirm. The route's reputation goes up.</p>
       <div class="inrow"><input name="giver" placeholder="senior's username" autocapitalize="off" spellcheck="false" required><button class="btn primary sm">I got my treat</button></div></div></form>`).join('');
+    if (p.suggestions?.length) html += `<div class="section-title">My stop suggestions</div><ul class="sglist">${p.suggestions.map(g => `<li><span><b>${esc(g.name)}</b><small>${esc(routeName(g.routeId))}${g.am ? ` · ☀️ ~${t12(g.am)}` : ''}${g.pm ? ` · 🌙 ~${t12(g.pm)}` : ''}${g.note ? ` · “${esc(g.note)}”` : ''}</small></span>
+      <em class="sgst ${g.status}">${{ pending: 'Waiting for review', approved: 'Added ✓', rejected: 'Not added' }[g.status] || g.status}</em></li>`).join('')}</ul>`;
     if (p.shareBlocked) html += `<p class="estnote">Location sharing is turned off for your account by the transport office.</p>`;
     if (p.photoHidden) html += `<p class="estnote">Your photo is hidden until the transport office reviews it.</p>`;
     html += `<details class="edit" open><summary>Edit profile</summary><form data-form="profile" class="pform">
       <label class="field"><span>Username</span><input name="username" value="${esc(p.username)}" maxlength="20" autocapitalize="off" spellcheck="false">
-        <small class="fhint">${p.renameAfter > Date.now() ? `Next change possible on ${new Date(p.renameAfter).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : 'Letters, numbers and _; must start with a letter or _. You can change it once a week.'}</small></label>
+        <small class="fhint">${p.renameAfter > Date.now() ? `Next change possible on ${new Date(p.renameAfter).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : 'Letters, numbers and _; must start with a letter or _. You can change it only once every 90 days.'}</small></label>
       <div class="field"><span>Avatar</span><div class="emojis">${emojiGrid(p.emoji)}</div></div>
       <div class="row2"><label class="field"><span>My route</span><select name="route"><option value="">—</option>${Feed.routes.map(r => `<option value="${esc(r.id)}" ${p.routeId === r.id ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}</select></label>
-        <label class="field"><span>Batch</span><input name="batch" value="${esc(p.batch ?? '')}" inputmode="numeric" maxlength="4" placeholder="e.g. 2023"></label></div>
+        <label class="field"><span>Batch</span><input name="batch" value="${esc(p.batch ?? '')}" inputmode="numeric" maxlength="6" placeholder="e.g. 232"></label></div>
       <div class="photo-row">${p.noPhoto ? '<span class="muted-s">Photo uploads are turned off for your account.</span>'
         : `<label class="btn ghost-b sm">📸 ${p.avatarV ? 'Change photo' : 'Add a small photo'}<input type="file" id="photoIn" accept="image/*" hidden></label>${p.avatarV ? '<button type="button" class="link" data-removephoto>Remove photo</button>' : ''}`}</div>
       <small class="fhint">Photos are cut to a small square and shown on the leaderboard. Keep it friendly: rude photos get removed and uploads disabled.</small>
@@ -857,10 +879,16 @@
     const s = document.createElement('script'); s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'; s.async = true; s.onload = render; document.head.appendChild(s);
   }
   $('#jEmoji').addEventListener('click', e => { const b = e.target.closest('[data-emoji]'); if (b) $('#jEmoji').querySelectorAll('[data-emoji]').forEach(x => x.setAttribute('aria-checked', x === b)); });
+  let nameT = 0;
   $('#jName').addEventListener('input', e => {
-    const bad = S.checkName(e.target.value), h = $('#jNameHint');
-    h.textContent = !e.target.value ? 'Like a variable name: starts with a letter or _, then letters, numbers or _.' : bad || '✓ Looks good';
-    h.className = 'fhint ' + (!e.target.value ? '' : bad ? 'bad' : 'ok');
+    const v = e.target.value.trim(), bad = S.checkName(v), h = $('#jNameHint');
+    h.textContent = !v ? 'Like a variable name: starts with a letter or _, then letters, numbers or _.' : bad || 'Checking…';
+    h.className = 'fhint ' + (!v ? '' : bad ? 'bad' : '');
+    clearTimeout(nameT); if (!v || bad) return;
+    nameT = setTimeout(async () => { // first come, first served: show at once whether the name is free
+      try { const j = await S._api('me?check=' + encodeURIComponent(v), null, false); if ($('#jName').value.trim() !== v) return;
+        h.textContent = j.available ? `✓ @${v} is available` : j.error || `✗ @${v} is taken. Try another.`; h.className = 'fhint ' + (j.available ? 'ok' : 'bad'); } catch { h.textContent = '✓ Looks good'; h.className = 'fhint ok'; }
+    }, 350);
   });
   $('#jLater').addEventListener('click', () => $('#joinDlg').close());
   $('#jRestore').addEventListener('click', () => { $('#joinDlg').close(); openRestore(); });
@@ -895,6 +923,59 @@
     e.preventDefault();
     try { await S.restore($('#restoreVal').value); $('#restoreDlg').close(); celebrate(`Welcome back, @${S.me.username}!`); go({ name: 'me' }); }
     catch (x) { $('#restoreErr').textContent = x.message; $('#restoreErr').hidden = false; }
+  });
+
+  /* ---------- suggest a stop: move the map under a fixed pin ---------- */
+  let pick = null;
+  function startPick(routeId) {
+    if (!S.joined) return openJoin(() => startPick(routeId));
+    const mm = map && map.map; if (!mm) return toast('The map is not available in this browser.', true);
+    const r = Feed.routes.find(x => x.id === routeId); if (!r) return;
+    pick = { routeId };
+    setSheet(false);
+    const el = document.createElement('div'); el.className = 'pickpin'; el.innerHTML = '<span></span>';
+    pick.marker = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat(mm.getCenter()).addTo(mm);
+    let raf = 0;
+    pick.onMove = () => { pick.marker.setLngLat(mm.getCenter()); if (!raf) raf = requestAnimationFrame(() => { raf = 0; pickInfo(); }); };
+    mm.on('move', pick.onMove);
+    if (mm.getZoom() < 14.5) mm.easeTo({ zoom: 15, duration: 500 });
+    $('#pickTitle').textContent = `New stop on ${r.name}: move the map so the pin is on it`;
+    $('#pickbar').hidden = false; pickInfo();
+  }
+  function pickInfo() {
+    if (!pick) return;
+    const c = map.map.getCenter(), e = Feed.estimateAt(pick.routeId, c.lat, c.lng); pick.e = e; pick.at = c;
+    $('#pickInfo').innerHTML = !e ? '' : `${e.off > 300 ? `<i class="warn">${e.off >= 1000 ? (e.off / 1000).toFixed(1) + ' km' : e.off + ' m'} from the route</i> · ` : ''}${e.kmToCampus} km to campus${e.am ? ` · ☀️ ~${t12(e.am)}` : ''}${e.pm ? ` · 🌙 ~${t12(e.pm)}` : ''}`;
+  }
+  function endPick() {
+    if (!pick) return;
+    map.map.off('move', pick.onMove); pick.marker.remove(); pick = null;
+    $('#pickbar').hidden = true; setSheet(true);
+  }
+  $('#pickCancel').addEventListener('click', endPick);
+  $('#pickMe').addEventListener('click', () => {
+    if (!navigator.geolocation) return toast('Location is not available on this device.', true);
+    navigator.geolocation.getCurrentPosition(p => map.map.flyTo({ center: [p.coords.longitude, p.coords.latitude], zoom: 16.5 }),
+      () => toast('Could not get your location. Move the map instead.', true), { enableHighAccuracy: true, timeout: 12000 });
+  });
+  $('#pickNext').addEventListener('click', () => {
+    if (!pick?.e) return;
+    const r = Feed.routes.find(x => x.id === pick.routeId), e = pick.e;
+    $('#sgRoute').textContent = `${r.name} · ${e.between[0] && e.between[1] ? `between ${e.between[0]} and ${short(e.between[1])}` : e.beyondStart ? `before ${e.between[1]} (extends the route)` : ''}`;
+    $('#sgEst').innerHTML = `<div><small>Distance to campus</small><b>${e.kmToCampus} km</b></div><div><small>☀️ Bus passes (to campus)</small><b>${e.am ? '~' + t12(e.am) : '—'}</b></div><div><small>🌙 Bus passes (home)</small><b>${e.pm ? '~' + t12(e.pm) : '—'}</b></div>`
+      + (e.off > 300 ? `<p class="warn">This spot is ${e.off >= 1000 ? (e.off / 1000).toFixed(1) + ' km' : e.off + ' m'} from the current route, so the route would have to change. The transport office decides.</p>` : '');
+    $('#sgErr').hidden = true; $('#sgName').value = ''; $('#sgNote').value = '';
+    $('#suggestDlg').showModal(); setTimeout(() => $('#sgName').focus(), 50);
+  });
+  $('#sgBack').addEventListener('click', () => $('#suggestDlg').close());
+  $('#suggestForm').addEventListener('submit', async ev => {
+    ev.preventDefault();
+    const btn = $('#sgSend'); btn.disabled = true;
+    try {
+      await S.act('suggestStop', { routeId: pick.routeId, name: $('#sgName').value, note: $('#sgNote').value, lat: pick.at.lat, lng: pick.at.lng });
+      $('#suggestDlg').close(); endPick(); toast('📍 Thanks! Your stop went to the transport office for review.');
+    } catch (x) { $('#sgErr').textContent = x.message; $('#sgErr').hidden = false; }
+    btn.disabled = false;
   });
 
   /* ---------- installable app (PWA) ---------- */

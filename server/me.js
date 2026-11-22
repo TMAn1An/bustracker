@@ -6,12 +6,14 @@
 //   GET  (Bearer token)                                                      -> { me, token? (refreshed) }
 //   POST (Bearer token) {action: update | photo | removePhoto | newKey | claimTreat | vouch | report | delete}
 import { randomBytes } from 'node:crypto';
-import { db, ensureSchema, userFrom, signSession, sha256, num } from './_lib.js';
+import { db, ensureSchema, userFrom, signSession, sha256, num, CAMPUS, getSetting } from './_lib.js';
+import { routeTimes, estimatePoint } from './_eta.js';
+import { metres } from './_geo.js';
 import { hit, ipOf, checkLock, recordFail, clearFails } from './_ratelimit.js';
 import { profile, checkUsername, EMOJIS, COLORS, finalizeWeeks, ACTIVE_MS, neededVotes } from './_social.js';
 
 const SESSION_H = 60 * 24;               // 60 days; refreshed whenever the app opens with less than 30 days left
-const RENAME_MS = 7 * 24 * 3600e3;       // a username can change once a week (people confirm treats by username)
+const RENAME_MS = 90 * 24 * 3600e3;      // a username can change once every 90 days (names are first come, first served; treats are confirmed by name)
 const PHOTO_MAX = 24 * 1024;              // bytes after decoding (the app sends a 128x128 WebP/JPEG, usually 5-10 KB)
 // One report is enough: the photo goes to the admin's review queue (admin dashboard -> Community) and the admin decides.
 
@@ -35,14 +37,26 @@ async function routeOk(id) {
   const r = await db().execute({ sql: 'SELECT id FROM routes WHERE id = ?', args: [String(id)] });
   return r.rows[0] ? r.rows[0].id : null;
 }
-const batchOk = v => { if (v === '' || v == null) return null; const y = num(v, 2000, new Date().getUTCFullYear()); return y === null ? undefined : Math.round(y); };
+// Batch: the university's batch number, e.g. 232 (lower = more senior). The admin can set an allowed range (Community tab); empty = no limit.
+const batchOk = async v => {
+  v = String(v ?? '').trim(); if (!v) return null;
+  if (!/^\d{1,6}$/.test(v)) return undefined;
+  const [lo, hi] = await Promise.all([getSetting('batch_min', ''), getSetting('batch_max', '')]), n = Number(v);
+  if ((lo !== '' && n < Number(lo)) || (hi !== '' && n > Number(hi))) return undefined;
+  return n;
+};
+const BATCH_ERR = async () => { const [lo, hi] = await Promise.all([getSetting('batch_min', ''), getSetting('batch_max', '')]);
+  return `Batch: enter your batch number, e.g. 232${lo !== '' || hi !== '' ? ` (allowed: ${lo || '…'} to ${hi || '…'})` : ''}.`; };
 
 /** Private view of the signed-in user: public profile + what only they should see. */
 async function mine(id) {
   await finalizeWeeks();
   const p = await profile(id); if (!p) return null;
   const blocked = (await db().execute({ sql: 'SELECT 1 FROM share_blocks WHERE student_id = ?', args: [id] })).rows[0];
+  const sug = (await db().execute({ sql: `SELECT id, route_id, name, status, est_am, est_pm, km_to_campus, admin_note, created_at FROM stop_suggestions
+      WHERE user_id = ? ORDER BY created_at DESC LIMIT 10`, args: [id] })).rows;
   return { ...p.pub, noPhoto: !!p.user.no_photo, photoHidden: p.avatarHidden, shareBlocked: !!blocked,
+    suggestions: sug.map(x => ({ id: x.id, routeId: x.route_id, name: x.name, status: x.status, am: x.est_am, pm: x.est_pm, km: x.km_to_campus, note: x.admin_note, at: x.created_at })),
     renameAfter: p.user.renamed_at ? p.user.renamed_at + RENAME_MS : 0, owed: p.owed };
 }
 
@@ -51,12 +65,20 @@ export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   const body = req.body || {}, ip = ipOf(req), now = Date.now();
 
+  /* ----- username availability (first come, first served) ----- */
+  if (req.method === 'GET' && (req.query || {}).check != null) {
+    if (!(await hit('check:' + ip, 200, 3600e3))) return fail(res, 429, 'Slow down a little.');
+    const u = checkUsername(req.query.check); if (u.error) return res.status(200).json({ available: false, error: u.error });
+    const taken = (await db().execute({ sql: 'SELECT id FROM users WHERE username = ? COLLATE NOCASE', args: [u.value] })).rows[0];
+    const self = userFrom(req);
+    return res.status(200).json({ available: !taken || (self && taken.id === self.id) });
+  }
   /* ----- not signed in yet ----- */
   if (req.method === 'POST' && body.action === 'join') {
     if (!(await hit('join:' + ip, 30, 3600e3))) return fail(res, 429, 'Too many new accounts from this network. Try again later.');
     if (!(await turnstileOk(body.turnstile, ip))) return fail(res, 400, 'Please complete the "I am human" check.');
     const u = checkUsername(body.username); if (u.error) return fail(res, 400, u.error);
-    const batch = batchOk(body.batch); if (batch === undefined) return fail(res, 400, 'Batch: enter the year you were admitted, e.g. 2023.');
+    const batch = await batchOk(body.batch); if (batch === undefined) return fail(res, 400, await BATCH_ERR());
     const id = 'u' + randomBytes(6).toString('hex'), key = newKey();
     try {
       await db().execute({ sql: `INSERT INTO users (id, username, key_hash, emoji, color, route_id, batch, created_at, seen_at) VALUES (?,?,?,?,?,?,?,?,?)`,
@@ -104,7 +126,7 @@ export default async function handler(req, res) {
       if (body.emoji != null) { sets.push('emoji = ?'); args.push(EMOJIS.includes(body.emoji) ? body.emoji : '🚌'); }
       if (body.color != null) { sets.push('color = ?'); args.push(COLORS.includes(body.color) ? body.color : COLORS[0]); }
       if (body.routeId !== undefined) { sets.push('route_id = ?'); args.push(await routeOk(body.routeId)); }
-      if (body.batch !== undefined) { const b = batchOk(body.batch); if (b === undefined) return fail(res, 400, 'Batch: enter the year you were admitted, e.g. 2023.'); sets.push('batch = ?'); args.push(b); }
+      if (body.batch !== undefined) { const b = await batchOk(body.batch); if (b === undefined) return fail(res, 400, await BATCH_ERR()); sets.push('batch = ?'); args.push(b); }
       if (sets.length) {
         try { await db().execute({ sql: `UPDATE users SET ${sets.join(', ')}, seen_at = ? WHERE id = ?`, args: [...args, now, id] }); }
         catch (e) { if (/UNIQUE/i.test(e.message)) return fail(res, 409, 'That username is taken. Try another.'); throw e; }
@@ -165,6 +187,26 @@ export default async function handler(req, res) {
       if (!(await hit('report:' + id, 20, 24 * 3600e3))) return fail(res, 429, 'Too many reports today.');
       await db().execute({ sql: 'INSERT INTO reports (target, reporter, at) VALUES (?,?,?) ON CONFLICT DO NOTHING', args: [target, id, now] });
       return res.status(200).json({ ok: true });
+    }
+    case 'suggestStop': { // a rider suggests a missing stop; the admin approves, edits or rejects it
+      const name = String(body.name || '').trim().replace(/\s+/g, ' ').slice(0, 60);
+      const lat = num(body.lat, -90, 90), lng = num(body.lng, -180, 180), note = String(body.note || '').trim().slice(0, 300) || null;
+      if (name.length < 2) return fail(res, 400, 'Give the stop a name, e.g. "Board Bazar footbridge".');
+      if (lat === null || lng === null || metres(lat, lng, CAMPUS.lat, CAMPUS.lng) > 120e3) return fail(res, 400, 'Pick a place on the map (within reach of campus).');
+      if (!(await hit('suggest:' + id, 6, 24 * 3600e3)) || !(await hit('suggest-ip:' + ip, 20, 24 * 3600e3))) return fail(res, 429, 'That is enough suggestions for today. Thank you!');
+      const [rr, bb] = await db().batch([
+        { sql: 'SELECT id, stops, geometry FROM routes WHERE id = ?', args: [String(body.routeId || '')] },
+        { sql: 'SELECT depart_start, depart_campus FROM buses WHERE route_id = ? ORDER BY depart_start IS NULL, depart_start LIMIT 1', args: [String(body.routeId || '')] },
+      ], 'read');
+      const route = rr.rows[0]; if (!route) return fail(res, 400, 'Pick a route.');
+      const rt = routeTimes({ stops: JSON.parse(route.stops), geometry: JSON.parse(route.geometry) }, bb.rows[0], CAMPUS);
+      if (rt.stops.some(s => !s.campus && metres(s.lat, s.lng, lat, lng) < 120)) return fail(res, 400, 'There is already a stop right there.');
+      const e = estimatePoint(rt, lat, lng);
+      const dup = (await db().execute({ sql: `SELECT lat, lng FROM stop_suggestions WHERE route_id = ? AND status = 'pending'`, args: [route.id] })).rows;
+      if (dup.some(d => metres(d.lat, d.lng, lat, lng) < 120)) return fail(res, 400, 'Someone already suggested a stop there. The transport office will review it.');
+      await db().execute({ sql: `INSERT INTO stop_suggestions (route_id, name, lat, lng, note, user_id, s, off_m, km_to_campus, est_am, est_pm, between_stops, created_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, args: [route.id, name, +lat.toFixed(6), +lng.toFixed(6), note, id, e.s, e.off, e.kmToCampus, e.am, e.pm, JSON.stringify(e.between), now] });
+      return res.status(200).json({ ok: true, estimate: e, me: await mine(id) });
     }
     case 'linkStudent': { // reserved: link this account to a university student ID once the student database is available
       // Plan: verifyStudent(id, password) from ./_students.js -> UPDATE users SET student_id, verified_at (+ batch from the ID).

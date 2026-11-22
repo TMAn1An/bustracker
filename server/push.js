@@ -25,12 +25,14 @@ export default async function handler(req, res) {
     case 'subscribe': {
       if (!(await hit('push:' + ipOf(req), 30, 3600e3))) return bad(res, 'Too many requests. Try again later.', 429);
       const route = b.routeId ? (await db().execute({ sql: 'SELECT id FROM routes WHERE id = ?', args: [String(b.routeId)] })).rows[0]?.id || null : null;
-      const me = userFrom(req), flag = v => (v === false || v === 0 ? 0 : 1);
+      // Only what the rider asked for: morning reminder at their stop (default on), evening reminder and route news (default off),
+      // urgent transport notices (default on).
+      const me = userFrom(req), flag = (v, def) => (v === true || v === 1 ? 1 : v === false || v === 0 ? 0 : def);
       await db().execute({
-        sql: `INSERT INTO push_subs (endpoint, user_id, route_id, stop, remind, treat, notices, created_at, seen_at) VALUES (?,?,?,?,?,?,?,?,?)
+        sql: `INSERT INTO push_subs (endpoint, user_id, route_id, stop, remind, remind_pm, treat, notices, created_at, seen_at) VALUES (?,?,?,?,?,?,?,?,?,?)
           ON CONFLICT(endpoint) DO UPDATE SET user_id = COALESCE(excluded.user_id, push_subs.user_id), route_id = excluded.route_id, stop = excluded.stop,
-            remind = excluded.remind, treat = excluded.treat, notices = excluded.notices, seen_at = excluded.seen_at`,
-        args: [endpoint, me ? me.id : null, route, b.stop ? String(b.stop).slice(0, 60) : null, flag(b.remind), flag(b.treat), flag(b.notices), now, now],
+            remind = excluded.remind, remind_pm = excluded.remind_pm, treat = excluded.treat, notices = excluded.notices, seen_at = excluded.seen_at`,
+        args: [endpoint, me ? me.id : null, route, b.stop ? String(b.stop).slice(0, 60) : null, flag(b.remind, 1), flag(b.remindPm, 0), flag(b.treat, 0), flag(b.notices, 1), now, now],
       });
       return res.status(200).json({ ok: true });
     }

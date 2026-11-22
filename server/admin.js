@@ -2,6 +2,7 @@ import { db, adminFrom, buildGeometry, bumpRev, getRev, sha256, num, CAMPUS, ens
 import { randomBytes } from 'node:crypto';
 import { windows, parseWin, resetWindowsCache, PTS, calendar, resetCalendarCache, boost, resetBoostCache, bdNow } from './_social.js';
 import { enqueue, drain } from './_push.js';
+import { routeTimes, estimatePoint } from './_eta.js';
 
 const BUS_ID = /^[A-Za-z0-9-]{1,10}$/;
 const COLOR = /^#[0-9a-fA-F]{6}$/;
@@ -47,6 +48,8 @@ async function state(community = false) {
       FROM treats t LEFT JOIN users c ON c.id = t.champion_id LEFT JOIN users g ON g.id = t.giver_id ORDER BY t.week DESC, t.id DESC LIMIT 60`,
   ], 'read');
   const win = await windows();
+  const sugg = await db().execute(`SELECT g.*, u.username FROM stop_suggestions g LEFT JOIN users u ON u.id = g.user_id
+      ORDER BY (g.status = 'pending') DESC, g.created_at DESC LIMIT 100`);
   const [cal, xpBoost, fb, subs] = await Promise.all([calendar(), boost(), db().execute(`SELECT f.*, u.username FROM feedback f LEFT JOIN users u ON u.id = f.user_id
       ORDER BY (f.status = 'new') DESC, f.created_at DESC LIMIT 200`), db().execute('SELECT COUNT(*) AS n, SUM(notices) AS notices FROM push_subs')]);
   const last = Object.fromEntries(pos.rows.map(p => [p.bus_id, p]));
@@ -58,7 +61,9 @@ async function state(community = false) {
     sharers: sharers.rows.map(x => ({ studentId: x.student_id, username: x.username, busId: x.bus_id, status: x.status, startedAt: x.started_at, verifiedAt: x.verified_at, lastTs: x.last_ts })),
     blocked: blocks.rows.map(x => ({ studentId: x.student_id, username: x.username, at: x.at })),
     windows: win.text,
-    calendar: cal, boost: xpBoost, today: bdNow().day,
+    calendar: cal, boost: xpBoost, today: bdNow().day, batchRange: { min: await getSetting('batch_min', ''), max: await getSetting('batch_max', '') },
+    suggestions: sugg.rows.map(g => ({ id: g.id, routeId: g.route_id, name: g.name, lat: g.lat, lng: g.lng, note: g.note, username: g.username, status: g.status,
+      s: g.s, off: g.off_m, km: g.km_to_campus, am: g.est_am, pm: g.est_pm, between: g.between_stops ? JSON.parse(g.between_stops) : [], createdAt: g.created_at, adminNote: g.admin_note })),
     push: { subscribers: Number(subs.rows[0].n), notices: Number(subs.rows[0].notices) || 0 },
     feedback: fb.rows.map(f => ({ id: f.id, routeId: f.route_id, busId: f.bus_id, kind: f.kind, message: f.message, username: f.username, contact: f.contact,
       attachments: f.attachments ? JSON.parse(f.attachments) : [], status: f.status, createdAt: f.created_at })),
@@ -142,7 +147,7 @@ const actions = {
     const exp = expiresAt ? Number(expiresAt) : null;
     if (exp !== null && (!Number.isFinite(exp) || exp <= Date.now())) throw new Error('Expiry must be in the future.');
     await db().execute({ sql: 'INSERT INTO notices (message, level, created_at, expires_at) VALUES (?,?,?,?)', args: [message, level, Date.now(), exp] });
-    if (push) { // also as a push notification to everyone who allowed notices (sent over the next minutes by the cron job)
+    if (push && level === 'urgent') { // urgent notices only: everyone who allowed notices gets a push (sent over the next minutes)
       const n = await enqueue({ where: 's.notices = 1', title: level === 'urgent' ? '🚨 Transport notice' : '📢 Transport notice', body: message, tag: 'notice', ttl: 6 * 3600 });
       await drain(20);
       return { pushed: n };
@@ -197,6 +202,42 @@ const actions = {
     if (!['pending', 'paid', 'vouched', 'cancelled'].includes(status)) throw new Error('Bad status.');
     await db().execute({ sql: 'UPDATE treats SET status = ?, settled_at = ? WHERE id = ?', args: [status, status === 'pending' ? null : Date.now(), Number(id)] });
     return {};
+  },
+  // ---- stops suggested by riders ----
+  /** Add the suggested stop to its route at the right place (by distance along the route), re-snap the route, mark it approved. */
+  async approveSuggestion({ id, name, time, lat, lng }) {
+    const g = (await db().execute({ sql: 'SELECT * FROM stop_suggestions WHERE id = ?', args: [Number(id)] })).rows[0];
+    if (!g) throw new Error('Suggestion not found.');
+    const r = (await db().execute({ sql: 'SELECT id, name, color, stops, geometry FROM routes WHERE id = ?', args: [g.route_id] })).rows[0];
+    if (!r) throw new Error('The route no longer exists.');
+    const stops = JSON.parse(r.stops), geometry = JSON.parse(r.geometry);
+    const stop = { name: String(name || g.name).trim().slice(0, 60), lat: num(lat, -90, 90) ?? g.lat, lng: num(lng, -180, 180) ?? g.lng };
+    if (time) stop.time = time.match(/^([01]\d|2[0-3]):[0-5]\d$/) ? time : (() => { throw new Error('Pick-up time: use a time like 06:45.'); })();
+    const rt = routeTimes({ stops, geometry }, null, CAMPUS), e = estimatePoint(rt, stop.lat, stop.lng);
+    const idx = e.beyondStart ? 0 : rt.stops.filter(x => !x.campus && x.s <= e.s).length; // keep driving order
+    stops.splice(idx, 0, stop);
+    const g2 = await buildGeometry(stops);
+    await db().batch([
+      { sql: 'UPDATE routes SET stops = ?, geometry = ?, updated_at = ? WHERE id = ?', args: [JSON.stringify(stops), JSON.stringify(g2.geometry), Date.now(), r.id] },
+      { sql: `UPDATE stop_suggestions SET status = 'approved', name = ?, lat = ?, lng = ?, reviewed_at = ? WHERE id = ?`, args: [stop.name, stop.lat, stop.lng, Date.now(), g.id] },
+    ], 'write');
+    return { position: idx + 1, routeName: r.name, snapped: g2.snapped };
+  },
+  async rejectSuggestion({ id, note }) {
+    await db().execute({ sql: `UPDATE stop_suggestions SET status = 'rejected', admin_note = ?, reviewed_at = ? WHERE id = ?`, args: [String(note || '').trim().slice(0, 200) || null, Date.now(), Number(id)] });
+    return {};
+  },
+  /** The admin added the stop by hand in the route editor (after moving / renaming it): just mark the suggestion approved. */
+  async markSuggestion({ id, status }) {
+    if (!['approved', 'pending'].includes(status)) throw new Error('Bad status.');
+    await db().execute({ sql: 'UPDATE stop_suggestions SET status = ?, reviewed_at = ? WHERE id = ?', args: [status, Date.now(), Number(id)] });
+    return {};
+  },
+  async setBatchRange({ min, max }) {
+    const ok = v => v === '' || v == null || /^\d{1,6}$/.test(String(v));
+    if (!ok(min) || !ok(max)) throw new Error('Batch range: numbers only, e.g. 191 and 253 (or leave empty).');
+    if (min !== '' && max !== '' && min != null && max != null && Number(min) > Number(max)) throw new Error('Batch range: the first number must be smaller.');
+    await setSetting('batch_min', min ?? ''); await setSetting('batch_max', max ?? ''); return {};
   },
   // ---- university calendar ----
   async setOpenDays({ days }) {

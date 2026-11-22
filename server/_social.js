@@ -163,7 +163,7 @@ export async function top({ from, to = '9999-12-31', routeId = null, limit = 10 
         (SELECT SUM(${PTS}) FROM contrib c2 WHERE c2.user_id = c.user_id) AS xp
       FROM contrib c JOIN users u ON u.id = c.user_id
       WHERE c.day >= ? AND c.day < ? ${routeId ? 'AND c.route_id = ?' : ''} AND ${NOT_BLOCKED}
-      GROUP BY c.user_id HAVING p > 0 ORDER BY p DESC, MIN(c.first_at) LIMIT ?`,
+      GROUP BY c.user_id HAVING p > 0 ORDER BY p DESC, MAX(c.last_at) LIMIT ?`, // equal XP: whoever reached it first ranks higher
     args: routeId ? [from, to, routeId, limit] : [from, to, limit],
   });
   return r.rows.map(x => ({ ...pubUser(x), pts: Number(x.p), km: +(Number(x.m) / 1000).toFixed(1), xp: Number(x.xp) }));
@@ -178,7 +178,7 @@ export async function finalizeWeeks() {
   if ((await getSetting('champ_week', '')) >= prev) { _finalized = prev; return; }
   const r = await db().execute({
     sql: `SELECT c.route_id, c.user_id, SUM(${PTS}) AS p FROM contrib c WHERE c.day >= ? AND c.day < ? AND ${NOT_BLOCKED}
-      GROUP BY c.route_id, c.user_id ORDER BY c.route_id, p DESC, MIN(c.first_at)`, args: [prev, cur] });
+      GROUP BY c.route_id, c.user_id ORDER BY c.route_id, p DESC, MAX(c.last_at)`, args: [prev, cur] }); // tie: reached it first
   const now = Date.now(), seen = new Set(), stmts = [];
   for (const x of r.rows) {
     if (seen.has(x.route_id) || Number(x.p) < MIN_CHAMP_PTS) continue;
@@ -247,7 +247,7 @@ export async function profile(userId) {
     { sql: `SELECT DISTINCT day FROM contrib WHERE day >= ? ORDER BY day DESC`, args: [addDays(today, -90)] },
     { sql: 'SELECT week, route_id, pts FROM champions WHERE user_id = ? ORDER BY week DESC', args: [userId] },
     { sql: `SELECT COUNT(*) AS n FROM treats WHERE giver_id = ?`, args: [userId] },
-    { sql: 'SELECT hidden FROM avatars WHERE user_id = ?', args: [userId] },
+    { sql: `SELECT hidden, (SELECT COUNT(*) FROM stop_suggestions WHERE user_id = ? AND status = 'approved') AS mapped FROM users LEFT JOIN avatars ON avatars.user_id = users.id WHERE users.id = ?`, args: [userId, userId] },
     { sql: `SELECT route_id, COUNT(*) AS cups, MIN(created_at) AS since FROM treats WHERE champion_id = ? AND status = 'pending' GROUP BY route_id`, args: [userId] },
   ], 'read');
   const user = u.rows[0]; if (!user) return null;
@@ -266,7 +266,7 @@ export async function profile(userId) {
   add('contributor', n('trips') > 0); add('early_bird', n('early') > 0); add('trailblazer', n('firsts') > 0); add('full_ride', n('fulls') > 0);
   add('night_owl', n('pms') > 0); add('streak3', best >= 3); add('streak7', best >= 7); add('km10', n('m') >= 10e3); add('km100', n('m') >= 100e3);
   add('explorer', n('routes') >= 2); add('champion', champs.rows.length > 0); add('generous', Number(given.rows[0].n) > 0);
-  add('seat_scout', n('seats') >= 5); add('route_war', n('battles') > 0);
+  add('seat_scout', n('seats') >= 5); add('route_war', n('battles') > 0); add('mapper', Number(avatar.rows[0]?.mapped) > 0);
   // Remember earned badges on the user row (leaderboards show them) and log new unlocks for the "latest achievements" feed.
   const had = user.badges ? String(user.badges).split(',') : [];
   if (badges.join(',') !== had.join(',')) {
@@ -328,7 +328,11 @@ export async function battle(month = bdNow().day.slice(0, 7)) {
   return Object.keys({ ...sched, ...cov }).map(id => {
     const c = cov[id], s = sched[id] || 0, n = c ? Number(c.trips) : 0;
     return { routeId: id, covered: n, scheduled: s, pct: s ? Math.min(100, Math.round(n / s * 100)) : 0, xp: c ? Number(c.xp) : 0, riders: c ? Number(c.riders) : 0 };
-  }).sort((a, b) => b.pct - a.pct || b.xp - a.xp);
+  }).filter(x => x.scheduled > 0 || x.covered > 0)
+    // order: share of trips covered, then trips covered, then XP; equal score and trips = same rank (1, 1, 3)
+    .sort((a, b) => b.pct - a.pct || b.covered - a.covered || b.xp - a.xp)
+    .map((x, i, all) => ({ ...x, rank: i && all[i - 1].pct === x.pct && all[i - 1].covered === x.covered ? null : i + 1 }))
+    .map((x, i, all) => ({ ...x, rank: x.rank ?? all.slice(0, i).reverse().find(y => y.rank)?.rank ?? 1 }));
 }
 /** Crown last month's route battle winner (lazily, like the weekly champions). */
 let _monthDone = null;
@@ -338,6 +342,6 @@ export async function finalizeMonth() {
   if (_monthDone === prev) return;
   if ((await getSetting('battle_month', '')) >= prev) { _monthDone = prev; return; }
   const top = (await battle(prev))[0];
-  if (top && top.covered > 0) await db().execute({ sql: 'INSERT INTO route_wins (month, route_id, pct) VALUES (?,?,?) ON CONFLICT DO NOTHING', args: [prev, top.routeId, top.pct] });
+  if (top && top.covered > 0 && top.pct > 0) await db().execute({ sql: 'INSERT INTO route_wins (month, route_id, pct) VALUES (?,?,?) ON CONFLICT DO NOTHING', args: [prev, top.routeId, top.pct] });
   await setSetting('battle_month', prev); _monthDone = prev;
 }

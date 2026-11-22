@@ -6,6 +6,8 @@
 import { db, getSetting } from './_lib.js';
 import { SITE } from './_config.js';
 import { runFixes } from './_fixes.js';
+import { routeTimes } from './_eta.js';
+import { CAMPUS } from './_lib.js';
 import { bdNow, calendar, busRuns, finalizeWeeks, finalizeMonth, reputation, addDays, weekStart, ROAST_DOW } from './_social.js';
 
 const subtle = globalThis.crypto.subtle;
@@ -104,38 +106,45 @@ export async function tick() {
 }
 
 /** Departure reminders, 20 minutes before (at the rider's own stop when its pick-up time is known). */
-async function reminders(t) {
+export async function reminders(t) { // exported for tests
   const m = t.min;
   const [buses, routes] = await db().batch([
     'SELECT id, route_id, depart_start, depart_campus, days FROM buses WHERE route_id IS NOT NULL',
-    'SELECT id, name, stops FROM routes',
+    'SELECT id, name, stops, geometry FROM routes',
   ], 'read');
   const cal = await calendar();
   const run = buses.rows.filter(b => busRuns(cal, t.day, b.days));
   if (!run.length) return;
   // Cheap check first: is any departure or stop time about 20 minutes away?
-  const R = Object.fromEntries(routes.rows.map(r => [r.id, { name: r.name, stops: JSON.parse(r.stops) }]));
+  const R = Object.fromEntries(routes.rows.map(r => [r.id, { name: r.name, stops: JSON.parse(r.stops), geometry: JSON.parse(r.geometry) }]));
+  // Stops without a pick-up time get an estimated one (distance along the route from the timetable), so riders can be reminded there too.
+  const stopAt = {};
+  for (const b of run) {
+    const route = R[b.route_id]; if (!route || route.geometry.length < 2) continue;
+    try { const rt = routeTimes(route, b, CAMPUS); rt.stops.forEach(st => { if (!st.campus) { const t = st.time ? hm(st.time) : rt.am(st.s); if (t != null) (stopAt[b.id] ||= {})[st.name] = Math.round(t); } }); } catch {}
+  }
   const times = new Set();
   for (const b of run) {
     [hm(b.depart_start), hm(b.depart_campus)].forEach(x => x != null && times.add(x));
-    (R[b.route_id]?.stops || []).forEach(s => hm(s.time) != null && times.add(hm(s.time)));
+    Object.values(stopAt[b.id] || {}).forEach(t => times.add(t));
   }
   if (![...times].some(x => between(m, x))) return;
 
-  const subs = (await db().execute({ sql: `SELECT id, route_id, stop, sent_am, sent_pm FROM push_subs WHERE remind = 1 AND route_id IS NOT NULL
+  const subs = (await db().execute({ sql: `SELECT id, route_id, stop, remind, remind_pm, sent_am, sent_pm FROM push_subs WHERE (remind = 1 OR remind_pm = 1) AND route_id IS NOT NULL
       AND (sent_am IS NOT ? OR sent_pm IS NOT ?)`, args: [t.day, t.day] })).rows;
   const stmts = [], now = Date.now();
   for (const s of subs) {
     const mine = run.filter(b => b.route_id === s.route_id), route = R[s.route_id];
     if (!mine.length || !route) continue;
-    const first = route.stops[0]?.name || route.name, stop = s.stop && route.stops.find(x => x.name === s.stop && hm(x.time) != null);
+    const first = route.stops[0]?.name || route.name, stop = s.stop && route.stops.find(x => x.name === s.stop);
     const pick = legTimes => mine.map(b => ({ b, at: legTimes(b) })).filter(x => x.at != null).sort((a, b) => a.at - b.at)[0];
-    const am = pick(b => (stop ? hm(stop.time) : hm(b.depart_start))), pm = pick(b => hm(b.depart_campus));
-    for (const [leg, x, where, sent] of [['am', am, stop ? stop.name : first, s.sent_am], ['pm', pm, 'campus', s.sent_pm]]) {
+    const am = pick(b => (stop ? stopAt[b.id]?.[stop.name] ?? null : hm(b.depart_start))), pm = pick(b => hm(b.depart_campus));
+    for (const [leg, x, where, sent] of [['am', s.remind && am, stop ? stop.name : first, s.sent_am], ['pm', s.remind_pm && pm, 'campus', s.sent_pm]]) {
       if (!x || sent === t.day || !between(m, x.at)) continue;
       const left = x.at - m;
       stmts.push({ sql: `INSERT INTO push_msgs (sub_id, title, body, url, tag, ttl, created_at) VALUES (?,?,?,?,?,?,?)`,
-        args: [s.id, `⏰ Bus ${x.b.id} leaves in ${left} min`, `Leaves ${where} at ${t12(x.at)} (${route.name}). Tap to see where it is now.`,
+        args: [s.id, leg === 'am' && stop ? `⏰ Bus ${x.b.id} reaches ${stop.name} in ${left} min` : `⏰ Bus ${x.b.id} leaves ${where === 'campus' ? 'campus' : where} in ${left} min`,
+          `${leg === 'am' && stop ? `Expected at your stop at ${t12(x.at)}${stop.time ? '' : ' (estimated)'}` : `Leaves at ${t12(x.at)}`} · ${route.name}. Tap to see where it is now.`,
           `/#route=${s.route_id}`, `dep-${s.route_id}-${leg}`, 1200, now] });
       stmts.push({ sql: `UPDATE push_subs SET sent_${leg} = ? WHERE id = ?`, args: [t.day, s.id] });
     }
