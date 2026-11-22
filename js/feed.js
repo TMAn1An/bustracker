@@ -5,6 +5,10 @@
 (function () {
   // Free-tier friendly: positions arrive every ~10 s and the app polls every 8 s; between updates the bus is
   // moved along its route at its last known speed (dead reckoning), so it still looks live.
+  // A bus moves on the map only when a real location arrives (bus phone or a verified rider): no timetable estimates,
+  // no pushing it ahead between updates. Without a live signal it stays where it was last seen (grey, "Offline"),
+  // and after STALE_S it is not drawn at all. ESTIMATE / PREDICT switch the old behaviour back on.
+  const ESTIMATE = false, PREDICT = false, STALE_S = 3 * 3600;
   const POLL_MS = 8000, PREDICT_MAX_S = 12, OFFLINE_S = 60, STOP_R = 60, MOVING = 1.0, STILL_M = 12, JAM_HOLD_S = 300; // m/s
   const rad = Math.PI / 180;
   let lat0 = 23.8882, lng0 = 90.3906, kx = 111320 * Math.cos(lat0 * rad), ky = 110574;
@@ -233,13 +237,14 @@
       const k = 1 - Math.exp(-dt / 0.9), out = [];
       this.state.forEach((st, id) => {
         let status = this._status(st), tLng, tLat, tHead;
-        const est = status === 'offline' ? this._estimate(st) : null;
+        const est = ESTIMATE && status === 'offline' ? this._estimate(st) : null;
+        if (!est && status === 'offline' && st.fix && this._age(st) > STALE_S) return; // last seen hours ago: not on the map
         if (est) { status = 'estimated'; tLng = est.lng; tLat = est.lat; tHead = est.heading; }
         else if (st.fix) {
           tLng = st.fix.tLng; tLat = st.fix.tLat; tHead = st.fix.tHead;
           // dead reckoning: keep a moving bus moving along its route between updates
           const f = st.fix, age = Math.min(PREDICT_MAX_S, this._age(st));
-          if (st.r && status === 'running' && f.speed > MOVING && f.off < 50) {
+          if (PREDICT && st.r && status === 'running' && f.speed > MOVING && f.off < 50) {
             const p = pointAt(st.r, f.s + st.dir * f.speed * age);
             tLng = p.lng; tLat = p.lat; tHead = st.dir > 0 ? p.bearing : (p.bearing + 180) % 360;
           }
@@ -324,7 +329,7 @@
       if (!r) return { id: st.id, routeName: 'No route assigned', color: '#6b766f', status, noRoute: true, from: '—', to: '—', toCampus: true, speedKmh: f ? Math.round((f.speed || 0) * 3.6) : 0,
         progress: 0, nextStop: null, destEta: 0, destEtaText: '—', nextEtaText: '—', atStop: null, stops: [], noData: !f,
         lastUpdateSec: f ? Math.round(this._age(st)) : null, lng: f?.lng, lat: f?.lat };
-      const est = status === 'offline' ? this._estimate(st) : null;
+      const est = ESTIMATE && status === 'offline' ? this._estimate(st) : null;
       const dir = est ? est.dir : st.dir;
       const travel = dir > 0 ? r.stops : r.stops.slice().reverse();
       const from = travel[0].name, to = travel[travel.length - 1].name;
