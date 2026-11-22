@@ -3,7 +3,7 @@
 // - Pages and app files: network first, so an update is live at once; the cached copy is used only when offline.
 // - /api/*, map tiles and anything else from other sites: never cached here (always live).
 // - Push: the server sends an empty push; we fetch the messages for this subscription and show them.
-const VERSION = 'v3';
+const VERSION = 'v4';
 const SHELL = ['/', '/index.html', '/css/style.css', '/js/feed.js', '/js/map.js', '/js/bus3d.js', '/js/share.js', '/js/social.js', '/js/app.js',
   '/vendor/maplibre-gl.js', '/vendor/maplibre-gl.css', '/vendor/three.min.js', '/assets/logo.png', '/assets/icons/icon-192.png', '/manifest.webmanifest'];
 

@@ -10,7 +10,7 @@
   class BusMap {
     constructor(el, { routes, campus, onSelect }) {
       this.routes = routes; this.campus = campus; this.onSelect = onSelect;
-      this.selected = null; this.selectedRoute = null; this.follow = false; this.buses = new Map(); this.stopMarks = [];
+      this.selected = null; this.selectedRoute = null; this._follow = false; this.onFollow = () => {}; this.buses = new Map(); this.stopMarks = [];
       this.pad = { top: 0, bottom: 0, left: 0, right: 0 };
       this.map = new maplibregl.Map({
         container: el, style: STYLE, center: [campus.lng, campus.lat], zoom: 11.6, pitch: 55, bearing: -15,
@@ -18,8 +18,13 @@
       });
       this.map.dragRotate.enable(); this.map.touchZoomRotate.enableRotation();
       this.ready = new Promise(res => this.map.on('load', () => { this._layers(); this._campus(); res(); this._models(); }));
-      // stop following when the user drags the map
-      this.map.on('dragstart', e => { if (e.originalEvent) this.follow = false; });
+      // Any touch, wheel or mouse press on the map hands the camera to the user: stop following at once, and cancel a
+      // follow that was waiting for a fly-to to end (otherwise the camera snaps back and fights pinch-zoom).
+      this.gen = 0;
+      const mine = () => { this.gen++; this.follow = false; };
+      const box = this.map.getCanvasContainer();
+      ['touchstart', 'mousedown', 'wheel'].forEach(t => box.addEventListener(t, mine, { passive: true, capture: true }));
+      ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart'].forEach(t => this.map.on(t, e => { if (e.originalEvent) mine(); }));
           }
 
     // Swap the simple boxes for real 3D bus models once three.js has loaded (in the background).
@@ -146,9 +151,22 @@
       }
     }
 
-    // setCenter cancels running animations, so start following only after the fly-to ends
+    get follow() { return this._follow; }
+    set follow(v) { v = !!v; if (v !== this._follow) { this._follow = v; this.onFollow(v); } }
+
+    // setCenter cancels running animations, so start following only after the fly-to ends (unless the user touched the map meanwhile)
     _followAfterMove(id) {
-      this.map.once('moveend', () => { if (this.selected === id) this.follow = true; });
+      const g = this.gen;
+      this.map.once('moveend', () => { if (this.selected === id && this.gen === g) this.follow = true; });
+    }
+
+    /** "See the bus on the map": fly to the bus and keep it in view until the user moves the map. */
+    track(id) {
+      const e = id && this.buses.get(id); if (!e) return false;
+      if (this.selected !== id) { this.selected = id; this._highlight(); this._stopLabels(); this.buses.forEach((x, k) => x.el.classList.toggle('sel', k === id)); }
+      this.follow = false; this._followAfterMove(id);
+      this.map.flyTo({ center: [e.lng, e.lat], zoom: Math.max(this.map.getZoom(), 15.6), pitch: Math.max(this.map.getPitch(), 50), speed: 1.3, padding: this.pad, essential: true });
+      return true;
     }
 
     _stopLabels() {
