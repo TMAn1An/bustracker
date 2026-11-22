@@ -181,7 +181,7 @@
     },
     _delay() {
       let live = false; this.state.forEach(st => { if (st.fix && this._age(st) < 90) live = true; });
-      if (live) return POLL_MS;
+      if (live || window.Share?.active || Object.keys(this.riders).length) return POLL_MS; // someone is sharing: stay close to live
       const m = this.now().min, soon = [...this.state.values()].some(st => [st.schedule?.departStart, st.schedule?.departCampus].some(t => { const d = hm(t); return d != null && m >= d - 30 && m < d; }));
       return this.legNow() || soon ? 15000 : 60000;
     },

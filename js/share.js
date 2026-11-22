@@ -30,7 +30,15 @@
       }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 30000 });
       this.timer = setInterval(() => { this._flush(); if (!this.lastPos && Date.now() - this.startedAt > 15000) this._probe(); }, 1000);
       this._lock();
-      document.addEventListener('visibilitychange', this._vis = () => { if (document.visibilityState === 'visible' && this.active) this._lock(); });
+      // Phones pause GPS and timers while the browser is in the background: when the rider comes back, send at once and say so.
+      document.addEventListener('visibilitychange', this._vis = () => {
+        if (!this.active) return;
+        if (document.visibilityState === 'hidden') { this.hiddenAt = Date.now(); return; }
+        this._lock();
+        const away = this.hiddenAt ? Date.now() - this.hiddenAt : 0; this.hiddenAt = 0;
+        if (away > 15000) this._set(this.status, `Sharing paused for ${Math.round(away / 1000)} s while the app was in the background. Sending again now.`);
+        this.last = 0; this._flush();
+      });
       this.onChange(this);
     },
 
@@ -74,6 +82,10 @@
         if (j.thanks != null) this.thanks = j.thanks;
         this.progress = j.status === 'checking' && j.progress != null ? j.progress : null;
         if (j.status === 'arrived') { await this.stop(true); this.busId = null; this._set(null, `${j.message}${this.xp ? ` You earned ${this.xp} XP on this ride.` : ''}`); return; }
+        if (j.status === 'verified' && window.Feed) { // your fix is now the bus's position: show it at once instead of waiting for the next poll
+          Feed.ingest({ id: this.busId, lat: c.latitude, lng: c.longitude, speed: c.speed ?? null, heading: c.heading ?? null, ts: Date.now() + Feed.offset - 3000, source: 'crowd' });
+          Feed.poll();
+        }
         this._set(j.status, j.message);
       } catch { this._set(this.status, 'Network problem, retrying…'); }
     },

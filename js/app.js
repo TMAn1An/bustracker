@@ -432,7 +432,8 @@
     const cls = SH_CLASS[Share.status] || 'wait';
     const fun = Share.xp || Share.thanks ? `<span class="sb-fun">${Share.xp ? `⚡ ${Share.xp} XP this ride` : ''}${Share.thanks ? ` · 🙏 ${Share.thanks} thanks` : ''}</span>` : '';
     const g = Share.gps; // what the phone's GPS is doing right now, so a problem is obvious
-    const gpsLine = `<span class="sb-gps ${!g ? 'bad' : g.acc > 60 ? 'warn' : 'ok'}">${!g ? '📡 No GPS fix yet' : `📡 GPS ±${g.acc} m · ${g.age < 2 ? 'now' : g.age + ' s ago'}`}${Share.progress != null ? ` · moved ${Math.min(400, Share.progress)} of 400 m to verify` : ''}</span>`;
+    const gpsLine = `<span class="sb-gps ${!g ? 'bad' : g.acc > 60 ? 'warn' : 'ok'}">${!g ? '📡 No GPS fix yet' : `📡 GPS ±${g.acc} m · ${g.age < 2 ? 'now' : g.age + ' s ago'}`}${Share.progress != null ? ` · moved ${Math.min(400, Share.progress)} of 400 m to verify` : ''}</span>
+      <span class="sb-keep">📱 Keep this screen open while you ride: phones pause sharing when the browser is in the background.</span>`;
     const seatsUi = cls === 'ok' ? `<div class="seatq"><span>Seats now?</span>${SEATS.map(([k, e, l]) => `<button data-seats="${k}" class="${seatsOf(Share.busId)?.level === k ? 'on' : ''}">${e} ${l}</button>`).join('')}</div>` : '';
     return `<div class="sharebar ${cls}"><div><b>${Share.status === 'full' ? `Waiting for a slot · Bus ${esc(Share.busId)}` : `Sharing for Bus ${esc(Share.busId)}`}</b><p>${esc(Share.message)}</p>${gpsLine}${fun}${seatsUi}</div>
       <span class="sb-act">${view.name !== 'route' || view.busId !== Share.busId ? '<button class="link" data-gosh>View</button>' : ''}<button class="btn-stop" data-unshare>Stop</button></span></div>`;
