@@ -762,3 +762,4 @@ button.daybar { width: 100%; text-align: left; font: inherit; font-size: 13.5px;
 .rcard.slim .rmain { min-width: 0; }
 .rstate { display: flex; align-items: center; gap: 6px; flex: none; }
 .rstate svg { width: 18px; height: 18px; color: #a2aaa3; }
+.mapcard .stale { color: #b45309; font-weight: 600; }

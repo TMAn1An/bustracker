@@ -501,7 +501,9 @@
     if (show) {
       const live = b.status === 'running' || b.status === 'stopped', off = b.status === 'offline';
       const state = live ? '<span class="pill running">● Live</span>' : off ? '<span class="pill offline">Offline</span>' : '<span class="pill estimated">Estimated</span>';
-      const line = off ? `Last seen ${lastSeen(b)}` : b.noRoute ? srcText(b) : b.nextStop ? `Next: ${esc(short(b.nextStop.name))} · ${b.nextEtaText}` : 'Arrived';
+      // a live position can be up to a minute old (riders send every 10 s, and a fix must pass the checks): say so when it is
+      const old = live && b.lastUpdateSec > 20 ? ` · <b class="stale">updated ${lastSeen(b)}</b>` : '';
+      const line = (off ? `Last seen ${lastSeen(b)}` : b.noRoute ? srcText(b) : b.nextStop ? `Next: ${esc(short(b.nextStop.name))} · ${b.nextEtaText}` : 'Arrived') + old;
       html = `<div class="mc-top"><b>Bus ${esc(b.id)}</b>${state}</div><div class="mc-line">${line}</div>
         <div class="mc-btns">${map.follow ? '<span class="mc-f on">◎ Following</span>' : `<button data-mcfollow="${esc(b.id)}">◎ Follow bus</button>`}${isMobile() ? '<button data-mcdetails>Details</button>' : ''}</div>`;
     }
