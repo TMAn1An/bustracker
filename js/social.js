@@ -141,6 +141,7 @@
       this._users[id] = { at: Date.now(), v }; return v;
     },
     cachedUser(id) { return this._users[id]?.v || null; },
+    async bgShare(busId, reset) { return this._api('me', { action: 'bgShare', busId, reset: !!reset }); },
     async thank(busId) { return this._api('board', { action: 'thank', busId }, false); },
   };
   /* ---------- Web Push: works without an account (reminders for my route) ---------- */
