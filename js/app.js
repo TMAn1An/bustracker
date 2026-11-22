@@ -592,22 +592,18 @@
     const live = snap.filter(b => b.status === 'running' || b.status === 'stopped').length;
     const rep = S.cachedBoard(null)?.reputation || {};
     let html = `<div class="section-title">Routes · ${live} bus${live === 1 ? '' : 'es'} live</div>`;
-    // One line per route: is the bus live (and when it arrives), or when the next trip leaves. Everything else is inside.
+    // Outside, only the route name, its last stop and Live / Offline. Stops, times and everything else are inside the route.
     html += routes.map(r => {
-      const list = busesOn(r.id), b = bestBus(list), st = b && tripStatus(b, r), riders = list.reduce((n, x) => n + (Feed.riders[x.id] || 0), 0);
-      const R = rep[r.id], live = b && (b.status === 'running' || b.status === 'stopped');
-      const eta = b && b.destEtaText && b.destEtaText !== '—' ? ` · ${b.inbound ? 'campus' : esc(short(b.to))} ${esc(b.destEtaText)}` : '';
-      const line = !b ? '<span class="muted-s">No bus assigned yet</span>'
-        : live ? `<span class="pill running">● Bus ${esc(b.id)} live${eta}</span>${riders ? `<span class="pill riders">👥 ${riders}</span>` : ''}${seatsPill(b.id)}`
-        : b.status === 'estimated' && st.kind !== 'done' ? `<span class="pill estimated">Bus ${esc(b.id)} · estimated${eta}</span>`
-        : `<span class="pill ${st.kind === 'soon' ? 'soon' : st.kind === 'done' ? 'done' : 'offline'}">Bus ${esc(b.id)} · ${esc(st.title.replace(/^\W+\s*/u, ''))}</span>`;
+      const list = busesOn(r.id), R = rep[r.id];
+      const live = list.some(b => b.status === 'running' || b.status === 'stopped');
+      const ends = r.stops.filter(x => !x.name.startsWith('IUBAT')), far = r.stops[0]?.name.startsWith('IUBAT') ? ends[ends.length - 1] : r.stops[0];
       return `<button class="rcard slim${r.id === myRoute ? ' mine' : ''}" data-route="${esc(r.id)}" style="--route:${esc(r.color)}">
         <span class="rbar"></span>
         <span class="rmain">
           <h3>${r.id === myRoute ? '⭐ ' : ''}${esc(r.name)}${R && R.stingy ? ' <span class="kipta" title="Treat overdue">🥲</span>' : ''}</h3>
-          <span class="rlive">${line}</span>
+          ${far ? `<span class="rsub rlast">Last stop: ${esc(far.name)}</span>` : ''}
         </span>
-        <span class="chev">${ICON_CHEV}</span>
+        <span class="rstate">${!list.length ? '<span class="pill offline">No bus</span>' : live ? '<span class="pill running">● Live</span>' : '<span class="pill offline">Offline</span>'}${ICON_CHEV}</span>
       </button>`;
     }).join('');
     const loose = snap.filter(b => !b.routeId);

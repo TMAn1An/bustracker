@@ -758,3 +758,7 @@ button.daybar { width: 100%; text-align: left; font: inherit; font-size: 13.5px;
 .rcard.slim { padding: 11px 12px 11px 20px; margin-bottom: 7px; }
 .rcard.slim .rlive { margin-top: 5px; }
 .rcard.slim .rlive .pill { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-block; }
+.rcard.slim .rlast { display: block; margin-top: 3px; }
+.rcard.slim .rmain { min-width: 0; }
+.rstate { display: flex; align-items: center; gap: 6px; flex: none; }
+.rstate svg { width: 18px; height: 18px; color: #a2aaa3; }
