@@ -116,6 +116,11 @@
     $('#tZin').addEventListener('click', () => map.zoom(0.5));
     $('#tZout').addEventListener('click', () => map.zoom(2));
     $('#tLoc').addEventListener('click', () => map.recenter());
+    map.onFollow = on => { $('#tLoc').classList.toggle('on', on); $('#tLoc').title = on ? 'Following the bus (move the map to stop)' : 'Follow bus'; mapCard(); };
+    $('#mapcard').addEventListener('click', e => {
+      const f = e.target.closest('[data-mcfollow]'); if (f) return seeBus(f.dataset.mcfollow);
+      if (e.target.closest('[data-mcdetails]')) setSheet(true);
+    });
   }
 
   /* ---------- map (loads in the background) ---------- */
@@ -173,14 +178,14 @@
     $('#panel').classList.toggle('open', open);
     $('#handle').setAttribute('aria-expanded', open);
     $('#handleLabel').textContent = open ? 'Show map' : (view.name === 'route' ? 'Show bus details' : 'Show routes');
-    pad();
+    pad(); mapCard();
   }
   function pad() { if (map) map.setPadding(!isMobile() ? 0 : ($('#panel').classList.contains('open') ? innerHeight * 0.62 : 64)); }
 
   function refresh() {
     snap = Feed.snapshot();
     if (LIVE.has(view.name)) render(); else renderNotices();
-    checkReminder();
+    mapCard(); checkReminder();
   }
   function render() {
     renderNotices();
@@ -219,6 +224,7 @@
     if (q('[data-user]')) return go({ name: 'user', userId: q('[data-user]').dataset.user, from: { ...view } });
     if (q('[data-route]')) return openRoute(q('[data-route]').dataset.route);
     if (q('[data-bus]')) return openBus(q('[data-bus]').dataset.bus);
+    if (q('[data-see]')) return seeBus(q('[data-see]').dataset.see);
     if (q('[data-share]')) { const el = q('[data-share]'); return el.dataset.closed ? toast(`Sharing is closed right now: ${el.dataset.closed}.`) : askShare(el.dataset.share); }
     if (q('[data-unshare]')) {
       // Stopping before the end of the trip: fine (you keep your XP), but if you're the only sharer, say what happens.
@@ -455,6 +461,39 @@
     } catch (e) { toast(e.message, true); }
   }
 
+  /** For everyone (most people only watch): a clear button that shows this bus on the map and keeps it in view. */
+  function seeBtn(b) {
+    if (!b || b.noData) return '';
+    const live = b.status === 'running' || b.status === 'stopped', off = b.status === 'offline';
+    const title = off ? `See where Bus ${b.id} was last seen` : `See Bus ${b.id} on the map`;
+    const sub = live ? `<i class="dot run"></i>Live · ${b.source === 'crowd' ? 'a rider on board is sharing' : 'bus phone'} · ${lastSeen(b)}`
+      : off ? `Offline · last seen ${lastSeen(b)}` : `<i class="dot est"></i>Estimated · nobody on board is sharing right now`;
+    return `<button class="seebig ${live ? 'live' : ''}" data-see="${esc(b.id)}"><span class="sb-ic">🗺️</span><span><b>${esc(title)}</b><small>${sub}</small></span><em>Show</em></button>`;
+  }
+  function seeBus(id) {
+    if (!map.track) return;
+    if (isMobile()) setSheet(false); // first: changing the map padding would cancel the fly-to
+    if (!map.track(id)) { if (isMobile()) setSheet(true); return toast('The map is still loading. Try again in a moment.'); }
+    mapCard();
+  }
+  /** A small card on the map while you look at a bus: is it live, where it goes next, and buttons to follow it or open the details. */
+  let mapCardHtml = '';
+  function mapCard() {
+    const el = $('#mapcard'); if (!el) return;
+    const b = view.name === 'route' && snap.find(x => x.id === (view.busId || '')) || (view.name === 'route' && view.routeId && bestBus(busesOn(view.routeId)));
+    const show = b && !b.noData && (!isMobile() || !$('#panel').classList.contains('open'));
+    let html = '';
+    if (show) {
+      const live = b.status === 'running' || b.status === 'stopped', off = b.status === 'offline';
+      const state = live ? '<span class="pill running">● Live</span>' : off ? '<span class="pill offline">Offline</span>' : '<span class="pill estimated">Estimated</span>';
+      const line = off ? `Last seen ${lastSeen(b)}` : b.noRoute ? srcText(b) : b.nextStop ? `Next: ${esc(short(b.nextStop.name))} · ${b.nextEtaText}` : 'Arrived';
+      html = `<div class="mc-top"><b>Bus ${esc(b.id)}</b>${state}</div><div class="mc-line">${line}</div>
+        <div class="mc-btns">${map.follow ? '<span class="mc-f on">◎ Following</span>' : `<button data-mcfollow="${esc(b.id)}">◎ Follow bus</button>`}${isMobile() ? '<button data-mcdetails>Details</button>' : ''}</div>`;
+    }
+    el.hidden = !show;
+    if (html !== mapCardHtml) { el.innerHTML = html; mapCardHtml = html; }
+  }
+
   /** The main action on a route: a big "share location" button, always visible; when sharing is closed it says when it opens. */
   function shareCta(b) {
     if (!b || b.noRoute || (Share.active && Share.busId === b.id)) return '';
@@ -609,7 +648,7 @@
     let html = back + `<div class="r-head" style="--route:${r ? esc(r.color) : '#9aa29b'}"><span class="rbar"></span><div class="grow1"><h2>${title}</h2>
       <span class="rsub">${r ? `${esc(short(r.stops[0].name))} <span class="arrow">⇄</span> IUBAT Campus` : 'No route assigned yet'}</span></div>
       ${r ? `<button class="star ${myRoute === r.id ? 'on' : ''}" data-star="${esc(r.id)}" aria-pressed="${myRoute === r.id}">${myRoute === r.id ? '★ My route' : '☆ My route'}</button>` : ''}</div>`;
-    html += shareCta(b);
+    html += seeBtn(b) + shareCta(b);
     if (r) html += reputationLine(r.id) + treatBanner(r.id);
     if (list.length > 1) html += `<div class="seg" role="tablist">${list.map(x => `<button role="tab" data-bus="${esc(x.id)}" aria-selected="${x.id === b.id}"><i class="dot ${({ running: 'run', stopped: 'stop', estimated: 'est' })[x.status] || 'off'}"></i>Bus ${esc(x.id)}</button>`).join('')}</div>`;
     if (!b) return html + `<p class="muted-p">No bus is assigned to this route yet.</p>` + (r ? stopsOnly(r) + `<button class="fbtn sg" data-suggest="${esc(r.id)}">📍 A stop is missing? Suggest it</button>` : '');
