@@ -101,7 +101,10 @@
         }
         e.routeId = b.routeId; e.lng = b.lng; e.lat = b.lat; e.live = b.status !== 'offline';
         e.marker.setLngLat([b.lng, b.lat]);
-        e.el.className = 'bus-pin ' + b.status + (b.id === this.selected ? ' sel' : '');
+        // change only our own classes: replacing className would also remove MapLibre's "maplibregl-marker" class,
+        // and the pins would then stack in the page layout instead of sitting on the map
+        if (e.status !== b.status) { if (e.status) e.el.classList.remove(e.status); e.el.classList.add(b.status); e.status = b.status; }
+        e.el.classList.toggle('sel', b.id === this.selected);
         e.el.style.setProperty('--route', b.color);
         e.el.style.zIndex = b.id === this.selected ? 5 : 1;
         feats.push(this._box(b));

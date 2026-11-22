@@ -187,7 +187,7 @@ svg.i { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width:
 .conn { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); z-index: 2; font-size: 13px; font-weight: 500; background: #fff; color: #b42318; padding: 8px 14px; border-radius: 9px; box-shadow: var(--shadow); border: 1px solid #fecdca; white-space: nowrap; }
 
 /* ---------- Map markers ---------- */
-.bus-pin { all: unset; cursor: pointer; display: block; position: relative; filter: drop-shadow(0 2px 4px rgba(16, 24, 20, .28)); }
+.bus-pin { all: unset; cursor: pointer; display: block; position: absolute; top: 0; left: 0; will-change: transform; filter: drop-shadow(0 2px 4px rgba(16, 24, 20, .28)); }
 .bus-pin b { display: flex; align-items: center; gap: 6px; padding: 5px 10px 5px 8px; font: 700 14px/1.1 var(--font); font-variant-numeric: tabular-nums; color: var(--ink); background: #fff; border-radius: 8px; border: 1px solid rgba(0, 0, 0, .1); }
 .bus-pin b::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; }
 .bus-pin::after { content: ""; position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%); border: 5px solid transparent; border-top-color: #fff; border-bottom: 0; }
