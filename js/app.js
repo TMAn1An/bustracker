@@ -77,13 +77,16 @@
       checkNewNotices(); refresh();
     };
     checkNewNotices();
-    Share.onChange = () => render();
+    Share.onChange = () => {
+      if (Pocket.on) { if (Share.active) return Pocket.update(); Pocket.close(true); } // sharing ended (e.g. arrived): wake up and show why
+      render();
+    };
     Share.onXp = gain => pop(`+${gain} XP`);
     S.onChange = () => { if (S.me?.routeId) setMyRoute(S.me.routeId, true); renderMe(); celebrateNew(); if (!LIVE.has(view.name)) render(); };
     let last = performance.now(), meDot = null;
     (function loop(now) {
       const dt = Math.min(0.2, (now - last) / 1000); last = now;
-      map.setBuses(Feed.positions(dt));
+      if (!Pocket.on) map.setBuses(Feed.positions(dt)); // pocket mode: the map is hidden, save the battery
       // while sharing: your own GPS position as a blue dot (only on your phone), so you can see the GPS is working
       const p = Share.active && Share.lastPos, mm = map.map;
       if (p && mm) {
@@ -183,6 +186,7 @@
   function pad() { if (map) map.setPadding(!isMobile() ? 0 : ($('#panel').classList.contains('open') ? innerHeight * 0.62 : 64)); }
 
   function refresh() {
+    if (Pocket.on) return Pocket.update();
     snap = Feed.snapshot();
     if (LIVE.has(view.name)) render(); else renderNotices();
     mapCard(); checkReminder();
@@ -224,6 +228,7 @@
     if (q('[data-user]')) return go({ name: 'user', userId: q('[data-user]').dataset.user, from: { ...view } });
     if (q('[data-route]')) return openRoute(q('[data-route]').dataset.route);
     if (q('[data-bus]')) return openBus(q('[data-bus]').dataset.bus);
+    if (q('[data-pocket]')) return Pocket.open();
     if (q('[data-see]')) return seeBus(q('[data-see]').dataset.see);
     if (q('[data-bg]')) return openBg(q('[data-bg]').dataset.bg);
     if (q('[data-share]')) { const el = q('[data-share]'); return el.dataset.closed ? toast(`Sharing is closed right now: ${el.dataset.closed}.`) : askShare(el.dataset.share); }
@@ -440,7 +445,9 @@
     const fun = Share.xp || Share.thanks ? `<span class="sb-fun">${Share.xp ? `⚡ ${Share.xp} XP this ride` : ''}${Share.thanks ? ` · 🙏 ${Share.thanks} thanks` : ''}</span>` : '';
     const g = Share.gps; // what the phone's GPS is doing right now, so a problem is obvious
     const gpsLine = `<span class="sb-gps ${!g ? 'bad' : g.acc > 60 ? 'warn' : 'ok'}">${!g ? '📡 No GPS fix yet' : `📡 GPS ±${g.acc} m · ${g.age < 2 ? 'now' : g.age + ' s ago'}`}${Share.progress != null ? ` · moved ${Math.min(400, Share.progress)} of 400 m to verify` : ''}</span>
-      <span class="sb-keep">📱 Keep this screen open while you ride: phones pause sharing when the browser is in the background. <button class="link" data-bg="${esc(Share.busId)}">Share with the screen off →</button></span>`;
+      <span class="sb-keep">📱 Keep this screen on while you ride: phones stop sharing when the screen locks or the app is in the background.</span>
+      <span class="sb-pocket"><button class="pkbtn" data-pocket>🌑 Pocket mode</button><small>Black screen, sharing continues. Saves battery.</small></span>
+      <button class="link sb-bglink" data-bg="${esc(Share.busId)}">Or share with the screen fully off (free app) →</button>`;
     const seatsUi = cls === 'ok' ? `<div class="seatq"><span>Seats now?</span>${SEATS.map(([k, e, l]) => `<button data-seats="${k}" class="${seatsOf(Share.busId)?.level === k ? 'on' : ''}">${e} ${l}</button>`).join('')}</div>` : '';
     return `<div class="sharebar ${cls}"><div><b>${Share.status === 'full' ? `Waiting for a slot · Bus ${esc(Share.busId)}` : `Sharing for Bus ${esc(Share.busId)}`}</b><p>${esc(Share.message)}</p>${gpsLine}${fun}${seatsUi}</div>
       <span class="sb-act">${view.name !== 'route' || view.busId !== Share.busId ? '<button class="link" data-gosh>View</button>' : ''}<button class="btn-stop" data-unshare>Stop</button></span></div>`;
@@ -461,6 +468,54 @@
       pop('💺 +2 XP'); render();
     } catch (e) { toast(e.message, true); }
   }
+
+  /**
+   * Pocket mode: a web page cannot share with the screen off, so keep the screen on but black (an OLED screen showing
+   * black uses almost no power), stop drawing the map, and show only a dim status line. Double-tap to come back.
+   */
+  const Pocket = {
+    on: false, lastTap: 0, movedAt: 0, hintUntil: 0,
+    open() {
+      if (!Share.active) return toast('Start sharing first, then use Pocket mode.');
+      const el = $('#pocket');
+      this.on = true; this.hintUntil = Date.now() + 6000; this.movedAt = 0; el.hidden = false;
+      $('meta[name="theme-color"]').setAttribute('content', '#000000');
+      try { document.documentElement.requestFullscreen?.({ navigationUI: 'hide' })?.catch(() => {}); } catch {}
+      Share._lock(); // keep the screen from locking
+      if (!el.dataset.wired) {
+        el.dataset.wired = 1;
+        el.addEventListener('pointerdown', e => { // double-tap to exit; single touches (e.g. in a pocket) do nothing
+          e.preventDefault();
+          const now = Date.now();
+          if (now - this.lastTap < 450) { this.lastTap = 0; return this.close(); }
+          this.lastTap = now; this.hintUntil = now + 2500; this.update();
+        });
+        el.addEventListener('contextmenu', e => e.preventDefault());
+      }
+      this.update();
+    },
+    close(ended) {
+      if (!this.on) return;
+      this.on = false; $('#pocket').hidden = true;
+      $('meta[name="theme-color"]').setAttribute('content', '#0b6e1c');
+      try { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); } catch {}
+      if (ended) try { navigator.vibrate?.([200, 120, 200]); } catch {}
+      refresh();
+    },
+    update() {
+      if (!this.on) return;
+      const now = Date.now(), sent = Share.last ? Math.round((now - Share.last) / 1000) : null, g = Share.gps;
+      const label = { verified: '✓ Live for everyone', backup: '✓ Backup (bus phone is live)', checking: 'Checking that you are on the bus…', paused: 'Paused', full: 'Waiting for a free slot' }[Share.status] || Share.message || 'Sharing';
+      $('#pkTitle').textContent = `Bus ${Share.busId} · ${label}`;
+      $('#pkLine').textContent = `${g ? `GPS ±${g.acc} m` : 'No GPS yet'}${sent != null ? ` · sent ${sent} s ago` : ''}${Share.xp ? ` · ⚡ ${Share.xp} XP` : ''}`;
+      const box = $('#pkBox');
+      box.classList.toggle('hint', now < this.hintUntil);
+      box.classList.toggle('warn', !g || (sent != null && sent > 40) || ['off_route', 'weak_gps', 'jump', 'disagree', 'wrong_way', 'no_gps'].includes(Share.status));
+      if (now - this.movedAt > 60e3) { // move the text now and then so it never burns into the screen
+        this.movedAt = now; box.style.top = (15 + Math.random() * 60) + '%'; box.style.left = (4 + Math.random() * 22) + '%';
+      }
+    },
+  };
 
   /** Sharing with the screen off: set up the Traccar Client app with a personal ID (the web page itself stops when the screen is off). */
   async function openBg(busId, reset) {
