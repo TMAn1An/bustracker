@@ -47,45 +47,51 @@ export default async function handler(req, res) {
   if (!me) return res.status(401).json({ error: 'Pick a username first to share location.' });
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   await ensureSchema();
-  const sid = me.id, body = req.body || {};
-  const reply = (status, extra = {}) => res.status(200).json({ status, message: MSG[status], ...extra });
+  const r = await crowdFix(me.id, req.body || {});
+  res.status(r.http).json(r.json);
+}
 
-  if (body.action === 'stop') { await stop(sid); return res.status(200).json({ status: 'stopped' }); }
+/** One location fix (or stop / seat report) from a rider: from the web app, or from the Traccar Client app via /api/osmand. */
+export async function crowdFix(sid, body) {
+  const out = (http, json) => ({ http, json });
+  const reply = (status, extra = {}) => out(200, { status, message: MSG[status], ...extra });
 
-  if ((await getSetting('crowd_enabled', '1')) !== '1') return res.status(403).json({ error: 'Location sharing by students is turned off by the admin.' });
+  if (body.action === 'stop') { await stop(sid); return out(200, { status: 'stopped' }); }
+
+  if ((await getSetting('crowd_enabled', '1')) !== '1') return out(403, { error: 'Location sharing by students is turned off by the admin.' });
   const acct = (await db().execute({ sql: 'SELECT u.id, (SELECT 1 FROM share_blocks b WHERE b.student_id = u.id) AS blocked FROM users u WHERE u.id = ?', args: [sid] })).rows[0];
-  if (!acct) return res.status(401).json({ error: 'Your account was not found. Pick a username again.' });
-  if (acct.blocked) return res.status(403).json({ error: 'Location sharing is not available for your account. Contact the transport office.' });
+  if (!acct) return out(401, { error: 'Your account was not found. Pick a username again.' });
+  if (acct.blocked) return out(403, { error: 'Location sharing is not available for your account. Contact the transport office.' });
   // Only during trip times: morning until the bus reaches campus, evening until it reaches the end of its route.
   const win = await windows(), bt = bdNow(), leg = legAt(win, bt.min);
-  if (!leg) { await stop(sid); return res.status(403).json({ error: 'Sharing is closed right now. ' + windowText(win), closed: true }); }
+  if (!leg) { await stop(sid); return out(403, { error: 'Sharing is closed right now. ' + windowText(win), closed: true }); }
 
   // Seat report from a verified rider of this bus: "plenty" / "few" / "full" (+2 XP, up to 3 per trip)
   if (body.action === 'seats') {
     const level = ['plenty', 'few', 'full'].includes(body.level) ? body.level : null;
     const ses = (await db().execute({ sql: 'SELECT bus_id, status, last_ts, last_s FROM share_sessions WHERE student_id = ?', args: [sid] })).rows[0];
     if (!level || !ses || !['verified', 'backup'].includes(ses.status) || Date.now() - ses.last_ts > 60e3)
-      return res.status(403).json({ error: 'Seat reports come from verified riders who are sharing this bus.' });
+      return out(403, { error: 'Seat reports come from verified riders who are sharing this bus.' });
     const now = Date.now();
     // the report is valid until the bus reaches its next stop (people get on and off there); the app checks this
     await db().execute({ sql: 'UPDATE trips SET seats = ?, seats_at = ?, seats_s = ? WHERE bus_id = ? AND day = ? AND leg = ?', args: [level, now, ses.last_s ?? null, ses.bus_id, bt.day, leg] });
     if (await hit(`seat:${sid}:${bt.day}:${leg}`, 1, 5 * 60e3)) // XP at most once per 5 minutes
       await db().execute({ sql: 'UPDATE contrib SET seat_reports = seat_reports + 1 WHERE user_id = ? AND bus_id = ? AND day = ? AND leg = ?', args: [sid, ses.bus_id, bt.day, leg] });
-    return res.status(200).json({ ok: true, seats: level });
+    return out(200, { ok: true, seats: level });
   }
 
   const busId = String(body.busId || ''), lat = num(body.lat, -90, 90), lng = num(body.lng, -180, 180), acc = num(body.acc, 0, 100000);
-  if (!busId || lat === null || lng === null) return res.status(400).json({ error: 'Bad request' });
+  if (!busId || lat === null || lng === null) return out(400, { error: 'Bad request' });
   const route = await routeFor(busId);
-  if (!route) return res.status(404).json({ error: 'This bus has no route yet.' });
+  if (!route) return out(404, { error: 'This bus has no route yet.' });
   // University calendar: Sat–Wed by default, plus special open days (exams, programs); holidays closed.
   const busDays = (await db().execute({ sql: 'SELECT days FROM buses WHERE id = ?', args: [busId] })).rows[0]?.days;
   const cal = await calendar();
-  if (!busRuns(cal, bt.day, busDays)) { await stop(sid); return res.status(403).json({ error: `Bus ${busId} does not run today${cal.special[bt.day]?.note ? ` (${cal.special[bt.day].note})` : ''}.`, closed: true }); }
+  if (!busRuns(cal, bt.day, busDays)) { await stop(sid); return out(403, { error: `Bus ${busId} does not run today${cal.special[bt.day]?.note ? ` (${cal.special[bt.day].note})` : ''}.`, closed: true }); }
   const trip0 = await tripOf(busId, bt.day, leg);
   if (trip0 && trip0.state === 'arrived') {
     await stop(sid);
-    return res.status(403).json({ error: `Bus ${busId} already ${leg === 'am' ? 'reached campus' : 'reached the end of its route'} at ${hm(trip0.arrived_at)}. Thanks anyway!`, closed: true });
+    return out(403, { error: `Bus ${busId} already ${leg === 'am' ? 'reached campus' : 'reached the end of its route'} at ${hm(trip0.arrived_at)}. Thanks anyway!`, closed: true });
   }
 
   const now = Date.now();

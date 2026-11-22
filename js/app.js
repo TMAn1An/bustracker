@@ -225,6 +225,7 @@
     if (q('[data-route]')) return openRoute(q('[data-route]').dataset.route);
     if (q('[data-bus]')) return openBus(q('[data-bus]').dataset.bus);
     if (q('[data-see]')) return seeBus(q('[data-see]').dataset.see);
+    if (q('[data-bg]')) return openBg(q('[data-bg]').dataset.bg);
     if (q('[data-share]')) { const el = q('[data-share]'); return el.dataset.closed ? toast(`Sharing is closed right now: ${el.dataset.closed}.`) : askShare(el.dataset.share); }
     if (q('[data-unshare]')) {
       // Stopping before the end of the trip: fine (you keep your XP), but if you're the only sharer, say what happens.
@@ -439,7 +440,7 @@
     const fun = Share.xp || Share.thanks ? `<span class="sb-fun">${Share.xp ? `⚡ ${Share.xp} XP this ride` : ''}${Share.thanks ? ` · 🙏 ${Share.thanks} thanks` : ''}</span>` : '';
     const g = Share.gps; // what the phone's GPS is doing right now, so a problem is obvious
     const gpsLine = `<span class="sb-gps ${!g ? 'bad' : g.acc > 60 ? 'warn' : 'ok'}">${!g ? '📡 No GPS fix yet' : `📡 GPS ±${g.acc} m · ${g.age < 2 ? 'now' : g.age + ' s ago'}`}${Share.progress != null ? ` · moved ${Math.min(400, Share.progress)} of 400 m to verify` : ''}</span>
-      <span class="sb-keep">📱 Keep this screen open while you ride: phones pause sharing when the browser is in the background.</span>`;
+      <span class="sb-keep">📱 Keep this screen open while you ride: phones pause sharing when the browser is in the background. <button class="link" data-bg="${esc(Share.busId)}">Share with the screen off →</button></span>`;
     const seatsUi = cls === 'ok' ? `<div class="seatq"><span>Seats now?</span>${SEATS.map(([k, e, l]) => `<button data-seats="${k}" class="${seatsOf(Share.busId)?.level === k ? 'on' : ''}">${e} ${l}</button>`).join('')}</div>` : '';
     return `<div class="sharebar ${cls}"><div><b>${Share.status === 'full' ? `Waiting for a slot · Bus ${esc(Share.busId)}` : `Sharing for Bus ${esc(Share.busId)}`}</b><p>${esc(Share.message)}</p>${gpsLine}${fun}${seatsUi}</div>
       <span class="sb-act">${view.name !== 'route' || view.busId !== Share.busId ? '<button class="link" data-gosh>View</button>' : ''}<button class="btn-stop" data-unshare>Stop</button></span></div>`;
@@ -461,6 +462,20 @@
     } catch (e) { toast(e.message, true); }
   }
 
+  /** Sharing with the screen off: set up the Traccar Client app with a personal ID (the web page itself stops when the screen is off). */
+  async function openBg(busId, reset) {
+    if (!S.joined) return openJoin(() => openBg(busId));
+    let j; try { j = await S.bgShare(busId, reset); } catch (e) { return toast(e.message, true); }
+    $('#bgId').value = j.token; $('#bgUrl').value = location.origin + '/api/osmand';
+    $('#bgBus').innerHTML = `This ID now shares for <b>Bus ${esc(j.busId)}</b>.`;
+    const dlg = $('#bgDlg'); if (!dlg.open) dlg.showModal();
+    if (!dlg.dataset.wired) {
+      dlg.dataset.wired = 1;
+      dlg.addEventListener('click', e => { const c = e.target.closest('[data-bgcopy]'); if (c) copy($('#' + c.dataset.bgcopy).value, 'Copied'); });
+      $('#bgReset').addEventListener('click', () => { if (confirm('Make a new ID? The old one stops working, so update it in the Traccar Client app too.')) openBg(dlg.dataset.bus, true); });
+    }
+    dlg.dataset.bus = busId;
+  }
   /** For everyone (most people only watch): a clear button that shows this bus on the map and keeps it in view. */
   function seeBtn(b) {
     if (!b || b.noData) return '';
@@ -506,7 +521,8 @@
     else if (riders >= 3) { open = true; title = '3 riders are already sharing'; sub = 'On this bus too? Wait for a slot: you start automatically when one frees up'; }
     else { open = true; title = `I'm on Bus ${b.id}: share location`; sub = riders ? `${riders} rider${riders > 1 ? 's are' : ' is'} sharing · join as backup and earn XP` : `Help everyone see where the bus is · earn XP`; }
     return `<button class="sharebig ${open ? '' : 'off'}" data-share="${esc(b.id)}" ${open ? '' : `data-closed="${esc(sub)}"`}><span class="sb-ic">📍</span>
-      <span><b>${esc(title)}</b><small>${esc(sub)}</small></span>${open ? '<em>Start</em>' : ''}</button>`;
+      <span><b>${esc(title)}</b><small>${esc(sub)}</small></span>${open ? '<em>Start</em>' : ''}</button>
+      <button class="link bglink" data-bg="${esc(b.id)}">📴 Share with the screen off (free app) ›</button>`;
   }
   function thankBtn(b) {
     const leg = Feed.legNow(), tr = leg && Feed.trip(b.id, leg);
@@ -576,25 +592,20 @@
     const live = snap.filter(b => b.status === 'running' || b.status === 'stopped').length;
     const rep = S.cachedBoard(null)?.reputation || {};
     let html = `<div class="section-title">Routes · ${live} bus${live === 1 ? '' : 'es'} live</div>`;
+    // One line per route: is the bus live (and when it arrives), or when the next trip leaves. Everything else is inside.
     html += routes.map(r => {
       const list = busesOn(r.id), b = bestBus(list), st = b && tripStatus(b, r), riders = list.reduce((n, x) => n + (Feed.riders[x.id] || 0), 0);
-      const origin = r.stops[0]?.name || r.name, R = rep[r.id];
-      let liveLine = !b ? '<span class="muted-s">No bus assigned yet</span>'
-        : st.kind === 'done' ? `<span class="pill done">${esc(st.title)}</span>`
-        : st.kind === 'soon' ? `<span class="pill soon">${esc(st.title)}</span>`
-        : b.status === 'offline' ? `<span class="pill offline">Bus ${esc(b.id)} · Offline</span>`
-        : b.status === 'estimated' ? `<span class="pill estimated">Bus ${esc(b.id)} · Estimated</span><span class="muted-s">${dirText(b)} · ${b.destEtaText}</span>`
-        : `<span class="pill ${b.status}">Bus ${esc(b.id)} · ${STATUS[b.status]}</span><span class="muted-s">${dirText(b)}${b.destEtaText !== '—' ? ' · ' + b.destEtaText : ''}</span>`;
-      if (riders) liveLine += `<span class="pill riders">👥 ${riders} sharing</span>`;
-      if (b) liveLine += seatsPill(b.id);
-      const sched = b ? schedLine(b) : '';
-      return `<button class="rcard${r.id === myRoute ? ' mine' : ''}" data-route="${esc(r.id)}" style="--route:${esc(r.color)}">
+      const R = rep[r.id], live = b && (b.status === 'running' || b.status === 'stopped');
+      const eta = b && b.destEtaText && b.destEtaText !== '—' ? ` · ${b.inbound ? 'campus' : esc(short(b.to))} ${esc(b.destEtaText)}` : '';
+      const line = !b ? '<span class="muted-s">No bus assigned yet</span>'
+        : live ? `<span class="pill running">● Bus ${esc(b.id)} live${eta}</span>${riders ? `<span class="pill riders">👥 ${riders}</span>` : ''}${seatsPill(b.id)}`
+        : b.status === 'estimated' && st.kind !== 'done' ? `<span class="pill estimated">Bus ${esc(b.id)} · estimated${eta}</span>`
+        : `<span class="pill ${st.kind === 'soon' ? 'soon' : st.kind === 'done' ? 'done' : 'offline'}">Bus ${esc(b.id)} · ${esc(st.title.replace(/^\W+\s*/u, ''))}</span>`;
+      return `<button class="rcard slim${r.id === myRoute ? ' mine' : ''}" data-route="${esc(r.id)}" style="--route:${esc(r.color)}">
         <span class="rbar"></span>
         <span class="rmain">
           <h3>${r.id === myRoute ? '⭐ ' : ''}${esc(r.name)}${R && R.stingy ? ' <span class="kipta" title="Treat overdue">🥲</span>' : ''}</h3>
-          <span class="rsub">${esc(short(origin))} <span class="arrow">⇄</span> Campus${list.length ? ` · Bus ${list.map(x => esc(x.id)).join(', ')}` : ''}</span>
-          ${sched ? `<span class="rsched">${ICON_CLOCK}${sched}</span>` : ''}
-          <span class="rlive">${liveLine}</span>
+          <span class="rlive">${line}</span>
         </span>
         <span class="chev">${ICON_CHEV}</span>
       </button>`;

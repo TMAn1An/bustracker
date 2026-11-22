@@ -4,7 +4,7 @@
 //   POST {action:'join', username, emoji, color, routeId, batch, turnstile}   -> { token, key, me }
 //   POST {action:'restore', key}                                             -> { token, key, me }
 //   GET  (Bearer token)                                                      -> { me, token? (refreshed) }
-//   POST (Bearer token) {action: update | photo | removePhoto | newKey | claimTreat | vouch | report | delete}
+//   POST (Bearer token) {action: update | photo | removePhoto | newKey | bgShare | claimTreat | vouch | report | delete}
 import { randomBytes } from 'node:crypto';
 import { db, ensureSchema, userFrom, signSession, sha256, num, CAMPUS, getSetting } from './_lib.js';
 import { routeTimes, estimatePoint } from './_eta.js';
@@ -151,6 +151,15 @@ export default async function handler(req, res) {
     case 'removePhoto':
       await db().batch([{ sql: 'DELETE FROM avatars WHERE user_id = ?', args: [id] }, { sql: 'UPDATE users SET avatar_v = 0 WHERE id = ?', args: [id] }], 'write');
       break;
+    case 'bgShare': { // sharing with the screen off: a personal ID for the Traccar Client app, and the bus it shares for
+      const busId = String(body.busId || '');
+      const bus = (await db().execute({ sql: 'SELECT id, route_id FROM buses WHERE id = ?', args: [busId] })).rows[0];
+      if (!bus || !bus.route_id) return fail(res, 400, 'Pick a bus that has a route.');
+      const cur = (await db().execute({ sql: 'SELECT bg_token FROM users WHERE id = ?', args: [id] })).rows[0]?.bg_token;
+      const token = cur && !body.reset ? cur : 'r_' + randomBytes(9).toString('base64url');
+      await db().execute({ sql: 'UPDATE users SET bg_token = ?, bg_bus = ? WHERE id = ?', args: [token, busId, id] });
+      return res.status(200).json({ token, busId });
+    }
     case 'newKey': { // new recovery code; the old one stops working (this phone stays signed in)
       const key = newKey();
       await db().execute({ sql: 'UPDATE users SET key_hash = ? WHERE id = ?', args: [sha256(key), id] });

@@ -95,10 +95,13 @@ const MIGRATIONS = [
   `ALTER TABLE trips ADD COLUMN seats_s REAL`,       // where on the route the seat report was made (it expires at the next stop)
   `ALTER TABLE push_subs ADD COLUMN remind_pm INTEGER NOT NULL DEFAULT 0`, // evening reminder (before the bus leaves campus): only if asked for
   `CREATE UNIQUE INDEX IF NOT EXISTS users_student ON users (student_id) WHERE student_id IS NOT NULL`,
+  `ALTER TABLE users ADD COLUMN bg_token TEXT`,        // personal ID for sharing with the screen off (Traccar Client app)
+  `ALTER TABLE users ADD COLUMN bg_bus TEXT`,          // the bus that app shares for
+  `CREATE UNIQUE INDEX IF NOT EXISTS users_bg ON users (bg_token) WHERE bg_token IS NOT NULL`,
 ];
 
 // Bump SCHEMA_V whenever SCHEMA or MIGRATIONS change.
-const SCHEMA_V = '9';
+const SCHEMA_V = '10';
 // Create any missing tables once per serverless instance (cheap: CREATE TABLE IF NOT EXISTS).
 let _schema;
 export function ensureSchema() {

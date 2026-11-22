@@ -132,6 +132,25 @@
   </form>
 </dialog>
 
+<dialog id="bgDlg" class="sdlg">
+  <form method="dialog">
+    <h3>📴 Share with the screen off</h3>
+    <p class="dp">A web page cannot get your location once the screen turns off: Android and iPhone stop it. The free, open-source <b>Traccar Client</b> app can, and it sends to Bus Tracker with the same checks and the same XP.</p>
+    <ol class="bgsteps">
+      <li>Install <b>Traccar Client</b>: <a href="https://play.google.com/store/apps/details?id=org.traccar.client" target="_blank" rel="noopener">Android</a> · <a href="https://apps.apple.com/app/traccar-client/id843156974" target="_blank" rel="noopener">iPhone</a></li>
+      <li>Open it and fill in:
+        <div class="bgfield"><small>Device identifier</small><input id="bgId" readonly><button type="button" class="btn ghost-b" data-bgcopy="bgId">Copy</button></div>
+        <div class="bgfield"><small>Server URL</small><input id="bgUrl" readonly><button type="button" class="btn ghost-b" data-bgcopy="bgUrl">Copy</button></div>
+        <div class="bgset"><span>Location accuracy: <b>High</b></span><span>Frequency: <b>10</b> seconds</span><span>Distance: <b>0</b></span></div></li>
+      <li>On the bus, turn on <b>Service status</b> (Android: also allow location "All the time"). Lock the phone and keep it in your pocket.</li>
+      <li>Turn it off when you get off the bus. Sharing also stops by itself when the bus reaches the end of its trip.</li>
+    </ol>
+    <p class="dp" id="bgBus"></p>
+    <p class="dp small">This ID is only for you; don't share it. Riding another bus? Open that route and tap this button again: the same ID then shares for that bus.</p>
+    <div class="row wrap"><button type="button" class="btn ghost-b" id="bgReset">New ID</button><button value="ok" class="btn primary">Done</button></div>
+  </form>
+</dialog>
+
 <dialog id="restoreDlg" class="sdlg">
   <form id="restoreForm">
     <h3>Use your recovery code</h3>
