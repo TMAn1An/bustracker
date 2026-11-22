@@ -222,6 +222,8 @@
       if (f.speed > 1.5) st.ema += (f.speed - st.ema) * 0.2;
       const onRoad = pr.dist < 50;
       const [lng, lat] = onRoad ? ll(pr.x, pr.y) : [f.lng, f.lat];
+      const still = f.speed != null && f.speed < MOVING;
+      st.stillSince = still ? (st.stillSince && st.fix ? st.stillSince : f.ts) : null;
       st.fix = { ...f, s: pr.s, off: pr.dist, tLng: lng, tLat: lat, tHead: onRoad ? (st.dir > 0 ? pr.bearing : (pr.bearing + 180) % 360) : (f.heading ?? 0) };
       if (!st.disp) st.disp = { lng, lat, heading: st.fix.tHead };
     },
@@ -351,6 +353,8 @@
         destEtaText: status === 'offline' && !est ? '—' : approx + fmtMin(destEta),
         nextEtaText: nextStop ? approx + fmtMin(nextStop.etaMin) : '—',
         atStop: here ? here.name : null, lastUpdateSec: f ? Math.round(age) : null,
+        // standing still away from any stop for over a minute while live = stuck in traffic
+        jamMin: !est && status === 'stopped' && !here && st.stillSince && f.ts - st.stillSince >= 60e3 ? Math.max(1, Math.round((f.ts - st.stillSince) / 60e3)) : 0,
         lng: est ? est.lng : f.lng, lat: est ? est.lat : f.lat, source: est ? (est.byLast ? 'lost' : 'schedule') : (f.source || 'device') };
     },
   };

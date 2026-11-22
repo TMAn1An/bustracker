@@ -445,9 +445,10 @@
     const fun = Share.xp || Share.thanks ? `<span class="sb-fun">${Share.xp ? `⚡ ${Share.xp} XP this ride` : ''}${Share.thanks ? ` · 🙏 ${Share.thanks} thanks` : ''}</span>` : '';
     const g = Share.gps; // what the phone's GPS is doing right now, so a problem is obvious
     const gpsLine = `<span class="sb-gps ${!g ? 'bad' : g.acc > 60 ? 'warn' : 'ok'}">${!g ? '📡 No GPS fix yet' : `📡 GPS ±${g.acc} m · ${g.age < 2 ? 'now' : g.age + ' s ago'}`}${Share.progress != null ? ` · moved ${Math.min(400, Share.progress)} of 400 m to verify` : ''}</span>
-      <span class="sb-keep">📱 Keep this screen on while you ride: phones stop sharing when the screen locks or the app is in the background.</span>
+      ${Share.native ? '<span class="sb-keep">🔒 You can lock the phone: the app keeps sharing in the background. Stop it here or from the notification.</span>'
+        : `<span class="sb-keep">📱 Keep this screen on while you ride: phones stop sharing when the screen locks or the app is in the background.</span>
       <span class="sb-pocket"><button class="pkbtn" data-pocket>🌑 Pocket mode</button><small>Black screen, sharing continues. Saves battery.</small></span>
-      <button class="link sb-bglink" data-bg="${esc(Share.busId)}">Or share with the screen fully off (free app) →</button>`;
+      <button class="link sb-bglink" data-bg="${esc(Share.busId)}">Or share with the screen fully off (free app) →</button>`}`;
     const seatsUi = cls === 'ok' ? `<div class="seatq"><span>Seats now?</span>${SEATS.map(([k, e, l]) => `<button data-seats="${k}" class="${seatsOf(Share.busId)?.level === k ? 'on' : ''}">${e} ${l}</button>`).join('')}</div>` : '';
     return `<div class="sharebar ${cls}"><div><b>${Share.status === 'full' ? `Waiting for a slot · Bus ${esc(Share.busId)}` : `Sharing for Bus ${esc(Share.busId)}`}</b><p>${esc(Share.message)}</p>${gpsLine}${fun}${seatsUi}</div>
       <span class="sb-act">${view.name !== 'route' || view.busId !== Share.busId ? '<button class="link" data-gosh>View</button>' : ''}<button class="btn-stop" data-unshare>Stop</button></span></div>`;
@@ -555,7 +556,7 @@
     let html = '';
     if (show) {
       const live = b.status === 'running' || b.status === 'stopped', off = b.status === 'offline';
-      const state = live ? '<span class="pill running">● Live</span>' : off ? '<span class="pill offline">Offline</span>' : '<span class="pill estimated">Estimated</span>';
+      const state = live && b.jamMin ? `<span class="pill stopped">🚦 In traffic · ${b.jamMin} min</span>` : live ? '<span class="pill running">● Live</span>' : off ? '<span class="pill offline">Offline</span>' : '<span class="pill estimated">Estimated</span>';
       // a live position can be up to a minute old (riders send every 10 s, and a fix must pass the checks): say so when it is
       const old = live && b.lastUpdateSec > 20 ? ` · <b class="stale">updated ${lastSeen(b)}</b>` : '';
       const line = (off ? `Last seen ${lastSeen(b)}` : b.noRoute ? srcText(b) : b.nextStop ? `Next: ${esc(short(b.nextStop.name))} · ${b.nextEtaText}` : 'Arrived') + old;
@@ -579,7 +580,7 @@
     else { open = true; title = `I'm on Bus ${b.id}: share location`; sub = riders ? `${riders} rider${riders > 1 ? 's are' : ' is'} sharing · join as backup and earn XP` : `Help everyone see where the bus is · earn XP`; }
     return `<button class="sharebig ${open ? '' : 'off'}" data-share="${esc(b.id)}" ${open ? '' : `data-closed="${esc(sub)}"`}><span class="sb-ic">📍</span>
       <span><b>${esc(title)}</b><small>${esc(sub)}</small></span>${open ? '<em>Start</em>' : ''}</button>
-      <button class="link bglink" data-bg="${esc(b.id)}">📴 Share with the screen off (free app) ›</button>`;
+      ${Share.native ? '' : `<button class="link bglink" data-bg="${esc(b.id)}">📴 Share with the screen off (free app) ›</button>`}`;
   }
   function thankBtn(b) {
     const leg = Feed.legNow(), tr = leg && Feed.trip(b.id, leg);
@@ -744,7 +745,7 @@
     <p class="fhint">~ = estimated from the distance along the route and the timetable.</p>`;
 
   function busDetail(b, r) {
-    const head = `<div class="d-head"><span class="badge ${b.status}">${esc(b.id)}</span><div><h2>Bus ${esc(b.id)}</h2><span class="pill ${b.status}">${STATUS[b.status]}${b.atStop && b.status === 'stopped' ? ' · ' + esc(b.atStop) : ''}</span>${(b.noRoute || b.noData) ? '' : ` <span class="pill dir">${dirText(b)}</span>`}</div></div>`;
+    const head = `<div class="d-head"><span class="badge ${b.status}">${esc(b.id)}</span><div><h2>Bus ${esc(b.id)}</h2><span class="pill ${b.status}">${b.jamMin ? `🚦 In traffic · ${b.jamMin} min` : STATUS[b.status] + (b.atStop && b.status === 'stopped' ? ' · ' + esc(b.atStop) : '')}</span>${(b.noRoute || b.noData) ? '' : ` <span class="pill dir">${dirText(b)}</span>`}</div></div>`;
     if (b.noData) return head + `<p class="muted-p">No live location yet. It appears as soon as the bus phone or a rider on board shares.</p>` + (r ? stopsOnly(r) : '');
     if (b.noRoute) return head + `<p class="muted-p">No route assigned yet. Live position is shown on the map.</p>`;
     const off = b.status === 'offline', est = b.status === 'estimated';
@@ -858,7 +859,9 @@
     const T = r && Feed.routeTimes(r.id), opts = r ? r.stops.slice(0, -1).filter(s => T?.byName[s.name]?.am) : [];
     if (r && opts.length) html += `<label class="nrow"><span>My stop</span><select data-mystop="${esc(r.id)}"><option value="">the first stop</option>${opts.map(s => { const x = T.byName[s.name];
       return `<option ${myStops[r.id] === s.name ? 'selected' : ''} value="${esc(s.name)}">${esc(s.name)} (${x.scheduled ? '' : '~'}${t12(x.am)})</option>`; }).join('')}</select></label>`;
-    if (!P.supported()) {
+    if (window.AndroidBridge) {
+      html += `<p class="estnote">Push reminders are not in the Android app yet: they come in the next update. Until then the app reminds you while it is open, or turn on push in Chrome at the website.</p>`;
+    } else if (!P.supported()) {
       html += `<p class="estnote">This browser cannot receive push notifications. Install the app (Chrome on Android, or Safari → Add to Home Screen on iPhone).</p>`;
     } else if (P.needsInstall()) {
       html += `<div class="estnote"><b>iPhone:</b> tap <b>Share</b> → <b>Add to Home Screen</b>, open IUBAT Bus from your home screen, then turn notifications on here (iOS 16.4 or newer).</div>`;
