@@ -18,7 +18,7 @@ import { SITE } from './_config.js';
 const MAX_ACC = 60, ON_ROUTE = 80, MIN_PROGRESS = 400, MIN_WINDOW = 90e3, // ~9 fixes at one every 10 s
       MIN_KMH = 8, MAX_KMH = 120;
 const WINDOW = 4 * 60e3, STALL_MS = 6 * 60e3, STALL_M = 60, AGREE_M = 500, PEER_FRESH = 20e3, DEVICE_FRESH_MS = 45e3;
-const MIN_GAP = 2500, FULL_RIDE_S = 600;
+const MIN_GAP = 2500, FULL_RIDE_S = 600, STILL_M = 15; // moved less than this in ~30 s = standing still
 // At most SLOTS riders share one bus at a time. A slot is held while the rider keeps sending (SLOT_FRESH);
 // riders still being checked hold it for CHECK_HOLD at most, so someone "sharing" from home cannot block real riders.
 const SLOTS = 3, SLOT_FRESH = 30e3, CHECK_HOLD = 5 * 60e3;
@@ -180,10 +180,15 @@ export async function crowdFix(sid, body) {
   const senior = peers.filter(x => x.verified_at < verifiedAt);
   if (senior.some(x => metres(x.last_lat, x.last_lng, lat, lng) > AGREE_M)) { await save('disagree', { last_s: p.s, verified_at: verifiedAt }); return reply('disagree'); }
 
-  const speed = num(body.speed, 0, 60), heading = num(body.heading, 0, 360);
+  // Speed shown to everyone: measured from this rider's last ~30 s of fixes along the route, so a bus stuck in a jam
+  // or waiting at a stop shows as stopped (the phone's own speed can be stale, and the 4-minute average never drops to 0).
+  const reported = num(body.speed, 0, 60), heading = num(body.heading, 0, 360);
+  const near = fixes.filter(x => x.ts >= now - 30e3), n0 = near[0], n1 = near[near.length - 1];
+  const measured = n0 && n1.ts - n0.ts >= 8e3 ? (Math.abs(n1.s - n0.s) < STILL_M ? 0 : Math.abs(n1.s - n0.s) / ((n1.ts - n0.ts) / 1000)) : null;
+  const speed = measured === 0 ? 0 : measured != null ? (reported != null ? Math.min(reported, measured * 1.5 + 1) : measured) : (reported ?? (kmh / 3.6));
   await db().execute({ sql: `INSERT INTO positions (bus_id, lat, lng, speed, heading, acc, ts, source) VALUES (?,?,?,?,?,?,?,'crowd')
       ON CONFLICT(bus_id) DO UPDATE SET lat=excluded.lat, lng=excluded.lng, speed=excluded.speed, heading=excluded.heading, acc=excluded.acc, ts=excluded.ts, source='crowd'`,
-    args: [busId, lat, lng, speed ?? (kmh / 3.6), heading, acc, now] });
+    args: [busId, lat, lng, speed, heading, acc, now] });
   await save('verified', { last_s: p.s, verified_at: verifiedAt });
-  return reply('verified', await earn('verified'));
+  return reply('verified', { ...(await earn('verified')), speed });
 }

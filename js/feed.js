@@ -5,7 +5,7 @@
 (function () {
   // Free-tier friendly: positions arrive every ~10 s and the app polls every 8 s; between updates the bus is
   // moved along its route at its last known speed (dead reckoning), so it still looks live.
-  const POLL_MS = 8000, PREDICT_MAX_S = 25, OFFLINE_S = 60, STOP_R = 60, MOVING = 1.0; // m/s
+  const POLL_MS = 8000, PREDICT_MAX_S = 12, OFFLINE_S = 60, STOP_R = 60, MOVING = 1.0, STILL_M = 12, JAM_HOLD_S = 300; // m/s
   const rad = Math.PI / 180;
   let lat0 = 23.8882, lng0 = 90.3906, kx = 111320 * Math.cos(lat0 * rad), ky = 110574;
   const xy = (lng, lat) => [(lng - lng0) * kx, (lat - lat0) * ky];
@@ -210,6 +210,12 @@
         return;
       }
       const p = xy(f.lng, f.lat), pr = project(st.r, p[0], p[1]);
+      // Standing still (traffic jam, waiting at a stop): it moved less than STILL_M along the road since the last fix.
+      // Then the speed is 0 whatever the phone reported, so the map shows it stopped and does not push it forward.
+      if (st.fix && pr.dist < 50 && st.fix.off < 50) {
+        const dts = (f.ts - st.fix.ts) / 1000;
+        if (dts >= 4 && dts <= 60 && Math.abs(pr.s - st.fix.s) < STILL_M) f = { ...f, speed: 0 };
+      }
       // direction: use GPS heading when moving, otherwise compare with the previous position along the route
       if (f.speed > MOVING && f.heading != null) st.dir = Math.abs(angDiff(f.heading, pr.bearing)) < 90 ? 1 : -1;
       else if (st.fix && Math.abs(pr.s - st.fix.s) > 15) st.dir = pr.s > st.fix.s ? 1 : -1;
@@ -258,9 +264,11 @@
       const f = st.fix, lost = f ? this._age(st) : Infinity;
       if (r && f && f.off < 80 && lost > OFFLINE_S && lost < 20 * 60 && this.trip(st.id, st.dir > 0 ? 'am' : 'pm')?.state === 'live') {
         const v = Math.max(15 / 3.6, Math.min(30 / 3.6, st.ema)) * 0.85, end = st.dir > 0 ? r.length - 200 : 200;
-        let s = f.s + st.dir * v * lost; s = st.dir > 0 ? Math.min(s, end) : Math.max(s, end);
+        // If it was standing still when the signal was lost (traffic jam, long stop), assume it is still there for 5 minutes.
+        const moving = f.speed != null && f.speed < MOVING ? Math.max(0, lost - JAM_HOLD_S) : lost;
+        let s = f.s + st.dir * v * moving; s = st.dir > 0 ? Math.min(s, end) : Math.max(s, end);
         const p = pointAt(r, s);
-        st.est = { s, dir: st.dir, v, lng: p.lng, lat: p.lat, heading: st.dir > 0 ? p.bearing : (p.bearing + 180) % 360, depart: null, byLast: true, lostMin: Math.round(lost / 60) };
+        st.est = { s, dir: st.dir, v, lng: p.lng, lat: p.lat, heading: st.dir > 0 ? p.bearing : (p.bearing + 180) % 360, depart: null, byLast: true, held: moving === 0, lostMin: Math.round(lost / 60) };
         return st.est;
       }
       if (!r || !sc) return null;
@@ -319,7 +327,7 @@
       const travel = dir > 0 ? r.stops : r.stops.slice().reverse();
       const from = travel[0].name, to = travel[travel.length - 1].name;
       const base = { id: st.id, routeId: r.id, routeName: r.name, color: r.color, status: est ? 'estimated' : status, from, to,
-        toCampus: dir > 0, inbound: dir > 0, estimated: !!est, estDepart: est ? est.depart : null, estByStops: !!(est && est.byStops), estByLast: !!(est && est.byLast), lostMin: est ? est.lostMin : null, speedKmh: 0, progress: 0, nextStop: null, destEta: 0, destEtaText: '—',
+        toCampus: dir > 0, inbound: dir > 0, estimated: !!est, estDepart: est ? est.depart : null, estByStops: !!(est && est.byStops), estByLast: !!(est && est.byLast), estHeld: !!(est && est.held), lostMin: est ? est.lostMin : null, speedKmh: 0, progress: 0, nextStop: null, destEta: 0, destEtaText: '—',
         nextEtaText: '—', atStop: null, lastUpdateSec: null,
         stops: travel.map(s => ({ name: s.name, state: 'upcoming', etaMin: 0, time: s.time || null })) };
       if (!f && !est) return { ...base, noData: true };
