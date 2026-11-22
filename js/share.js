@@ -6,7 +6,9 @@
   const SEND_MS = 10000; // every 10 s: enough for the map (the app fills the gaps) and kind to the free hosting quota
   const Share = {
     busId: null, status: null, message: '', error: null, xp: 0, thanks: 0, onChange: () => {}, onXp: () => {},
-    watch: null, wake: null, pending: null, lastPos: null, timer: null, last: 0, token: null,
+    watch: null, wake: null, pending: null, lastPos: null, timer: null, last: 0, token: null, startedAt: 0, gpsIssue: null, progress: null, probing: false,
+    /** For the share bar: "GPS ±12 m · 3 s ago" (null before the first fix) */
+    get gps() { const p = this.lastPos; return p ? { acc: Math.round(p.coords.accuracy), age: Math.max(0, Math.round((Date.now() - p.timestamp) / 1000)) } : null; },
 
     get active() { return this.watch !== null; },
 
@@ -14,12 +16,19 @@
       if (!('geolocation' in navigator)) { this._set(null, 'Location is not available on this device.', true); return; }
       this.stop(true);
       this.busId = busId; this.token = token; this.status = 'starting'; this.message = 'Getting your location…'; this.error = null; this.xp = 0; this.thanks = 0;
-      this.lastPos = null;
-      this.watch = navigator.geolocation.watchPosition(p => { this.pending = p; this.lastPos = p; this._flush(); }, e => {
-        if (e.code === 1) { this.stop(); this._set(null, 'Location permission was denied. Allow it in your browser settings to share.', true); }
-        else this._set('weak_gps', 'Waiting for a GPS signal…');
-      }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
-      this.timer = setInterval(() => this._flush(), 1000);
+      this.lastPos = null; this.startedAt = Date.now(); this.gpsIssue = null; this.progress = null;
+      // GPS can take 30-60 s to get its first fix inside a moving bus: keep watching, and tell the rider exactly what is wrong.
+      this.watch = navigator.geolocation.watchPosition(p => {
+        this.pending = p; this.lastPos = p; this.gpsIssue = null;
+        if (this.status === 'starting' || this.status === 'no_gps') this._set('starting', p.coords.accuracy > 100 ? this._coarse(p) : 'GPS found. Checking that you are on the bus…');
+        this._flush();
+      }, e => {
+        if (e.code === 1) { this.stop(); this._set(null, 'Location permission is blocked for this site. Tap the 🔒 next to the address → Permissions → Location → Allow, then try again.', true); return; }
+        if (e.code === 2) { this.gpsIssue = 'off'; this._set('no_gps', 'Your phone\'s Location is off or unavailable. Turn on Location (GPS) in quick settings; sharing starts by itself.'); return; }
+        this.gpsIssue = 'slow'; this._probe();
+        if (!this.lastPos) this._set('no_gps', `Still looking for GPS (${Math.round((Date.now() - this.startedAt) / 1000)} s)… Keep the screen on, near a window.`);
+      }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 30000 });
+      this.timer = setInterval(() => { this._flush(); if (!this.lastPos && Date.now() - this.startedAt > 15000) this._probe(); }, 1000);
       this._lock();
       document.addEventListener('visibilitychange', this._vis = () => { if (document.visibilityState === 'visible' && this.active) this._lock(); });
       this.onChange(this);
@@ -35,6 +44,18 @@
       if (!silent) { this.busId = null; this.status = null; this.message = ''; this.onChange(this); }
     },
 
+    /** No precise fix yet: ask once for any location, to tell "Location off" from "only approximate location" from "slow GPS". */
+    _probe() {
+      if (this.probing || this.lastPos || !this.active) return; this.probing = true;
+      navigator.geolocation.getCurrentPosition(p => {
+        this.probing = false; if (this.lastPos || !this.active) return;
+        this._set('no_gps', p.coords.accuracy > 100 ? this._coarse(p) : 'GPS is warming up… keep the screen on, near a window.');
+      }, e => {
+        this.probing = false; if (this.lastPos || !this.active) return;
+        if (e.code === 2) { this.gpsIssue = 'off'; this._set('no_gps', 'Your phone\'s Location is off. Turn on Location (GPS) in quick settings; sharing starts by itself.'); }
+      }, { enableHighAccuracy: false, maximumAge: 60000, timeout: 15000 });
+    },
+    _coarse(p) { return `Your phone only gives an approximate location (±${Math.round(p.coords.accuracy)} m). Turn on precise location: phone Settings → Apps → your browser → Permissions → Location → "Use precise location".`; },
     async _lock() { try { if ('wakeLock' in navigator) this.wake = await navigator.wakeLock.request('screen'); } catch {} },
     _set(status, message, isError) { this.status = status; this.message = message; this.error = !!isError; this.onChange(this); },
 
@@ -51,6 +72,7 @@
         if (!res.ok) { this.stop(); this._set(null, j.error || 'Sharing stopped.', true); return; }
         if (j.xp != null && j.xp > this.xp) { const gain = j.xp - this.xp; this.xp = j.xp; this.onXp(gain, j.xp); }
         if (j.thanks != null) this.thanks = j.thanks;
+        this.progress = j.status === 'checking' && j.progress != null ? j.progress : null;
         if (j.status === 'arrived') { await this.stop(true); this.busId = null; this._set(null, `${j.message}${this.xp ? ` You earned ${this.xp} XP on this ride.` : ''}`); return; }
         this._set(j.status, j.message);
       } catch { this._set(this.status, 'Network problem, retrying…'); }

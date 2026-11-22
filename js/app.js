@@ -80,10 +80,16 @@
     Share.onChange = () => render();
     Share.onXp = gain => pop(`+${gain} XP`);
     S.onChange = () => { if (S.me?.routeId) setMyRoute(S.me.routeId, true); renderMe(); celebrateNew(); if (!LIVE.has(view.name)) render(); };
-    let last = performance.now();
+    let last = performance.now(), meDot = null;
     (function loop(now) {
       const dt = Math.min(0.2, (now - last) / 1000); last = now;
       map.setBuses(Feed.positions(dt));
+      // while sharing: your own GPS position as a blue dot (only on your phone), so you can see the GPS is working
+      const p = Share.active && Share.lastPos, mm = map.map;
+      if (p && mm) {
+        if (!meDot) { const el = document.createElement('div'); el.className = 'medot'; meDot = new maplibregl.Marker({ element: el }).setLngLat([p.coords.longitude, p.coords.latitude]).addTo(mm); }
+        else meDot.setLngLat([p.coords.longitude, p.coords.latitude]);
+      } else if (meDot) { meDot.remove(); meDot = null; }
       requestAnimationFrame(loop);
     })(last);
     refresh(); setInterval(refresh, 1000);
@@ -419,14 +425,16 @@
     dlg.onclose = () => { if (dlg.returnValue === 'yes') { local.set('iubat_share_ok', 1); Share.start(busId, S.token); } };
     dlg.showModal();
   }
-  const SH_CLASS = { verified: 'ok', backup: 'ok', checking: 'wait', starting: 'wait', weak_gps: 'wait', paused: 'wait', full: 'wait', off_route: 'bad', jump: 'bad', disagree: 'bad', wrong_way: 'bad' };
+  const SH_CLASS = { verified: 'ok', backup: 'ok', checking: 'wait', starting: 'wait', weak_gps: 'wait', paused: 'wait', full: 'wait', no_gps: 'bad', off_route: 'bad', jump: 'bad', disagree: 'bad', wrong_way: 'bad' };
   function shareBar() {
     if (!Share.active && !Share.message) return '';
     if (!Share.active) return `<div class="sharebar ${Share.error ? 'bad' : 'ok'}"><p>${esc(Share.message)}</p></div>`;
     const cls = SH_CLASS[Share.status] || 'wait';
     const fun = Share.xp || Share.thanks ? `<span class="sb-fun">${Share.xp ? `⚡ ${Share.xp} XP this ride` : ''}${Share.thanks ? ` · 🙏 ${Share.thanks} thanks` : ''}</span>` : '';
+    const g = Share.gps; // what the phone's GPS is doing right now, so a problem is obvious
+    const gpsLine = `<span class="sb-gps ${!g ? 'bad' : g.acc > 60 ? 'warn' : 'ok'}">${!g ? '📡 No GPS fix yet' : `📡 GPS ±${g.acc} m · ${g.age < 2 ? 'now' : g.age + ' s ago'}`}${Share.progress != null ? ` · moved ${Math.min(400, Share.progress)} of 400 m to verify` : ''}</span>`;
     const seatsUi = cls === 'ok' ? `<div class="seatq"><span>Seats now?</span>${SEATS.map(([k, e, l]) => `<button data-seats="${k}" class="${seatsOf(Share.busId)?.level === k ? 'on' : ''}">${e} ${l}</button>`).join('')}</div>` : '';
-    return `<div class="sharebar ${cls}"><div><b>${Share.status === 'full' ? `Waiting for a slot · Bus ${esc(Share.busId)}` : `Sharing for Bus ${esc(Share.busId)}`}</b><p>${esc(Share.message)}</p>${fun}${seatsUi}</div>
+    return `<div class="sharebar ${cls}"><div><b>${Share.status === 'full' ? `Waiting for a slot · Bus ${esc(Share.busId)}` : `Sharing for Bus ${esc(Share.busId)}`}</b><p>${esc(Share.message)}</p>${gpsLine}${fun}${seatsUi}</div>
       <span class="sb-act">${view.name !== 'route' || view.busId !== Share.busId ? '<button class="link" data-gosh>View</button>' : ''}<button class="btn-stop" data-unshare>Stop</button></span></div>`;
   }
   /* ---------- seats ---------- */
