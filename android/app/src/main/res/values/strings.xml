@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">IUBAT Bus</string>
+    <string name="channel_share">Location sharing</string>
+    <string name="channel_share_desc">Shown while you share your location for a bus</string>
+    <string name="stop">Stop sharing</string>
+</resources>

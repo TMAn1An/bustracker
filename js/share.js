@@ -3,6 +3,7 @@
  * The server verifies every fix (on the route, moving like a vehicle, no jumps) before it is shown to others.
  */
 (function () {
+  const NATIVE = window.AndroidBridge || null; // set by the IUBAT Bus Android app
   const SEND_MS = 10000; // every 10 s: enough for the map (the app fills the gaps) and kind to the free hosting quota
   const Share = {
     busId: null, status: null, message: '', error: null, xp: 0, thanks: 0, onChange: () => {}, onXp: () => {},
@@ -10,9 +11,17 @@
     /** For the share bar: "GPS ±12 m · 3 s ago" (null before the first fix) */
     get gps() { const p = this.lastPos; return p ? { acc: Math.round(p.coords.accuracy), age: Math.max(0, Math.round((Date.now() - p.timestamp) / 1000)) } : null; },
 
-    get active() { return this.watch !== null; },
+    get active() { return NATIVE ? !!this.nativeOn : this.watch !== null; },
+    /** Inside the Android app the phone shares from a background service (works with the screen off). */
+    native: !!NATIVE, nativeOn: false,
 
     start(busId, token) {
+      if (NATIVE) { // the app asks for permissions, starts the background service and reports back through _native()
+        this.busId = busId; this.token = token; this.status = 'starting'; this.message = 'Starting…'; this.error = null; this.xp = 0; this.thanks = 0; this.lastPos = null;
+        this.nativeOn = true; this.onChange(this);
+        try { NATIVE.startShare(String(busId), token, location.origin); } catch (e) { this.nativeOn = false; this._set(null, 'Could not start sharing: ' + e.message, true); }
+        return;
+      }
       if (!('geolocation' in navigator)) { this._set(null, 'Location is not available on this device.', true); return; }
       this.stop(true);
       this.busId = busId; this.token = token; this.status = 'starting'; this.message = 'Getting your location…'; this.error = null; this.xp = 0; this.thanks = 0;
@@ -43,6 +52,12 @@
     },
 
     async stop(silent) {
+      if (NATIVE) {
+        if (this.nativeOn) try { NATIVE.stopShare(); } catch {}
+        this.nativeOn = false; this.lastPos = null;
+        if (!silent) { this.busId = null; this.status = null; this.message = ''; this.onChange(this); }
+        return;
+      }
       const was = this.active, bus = this.busId, token = this.token;
       if (this.watch !== null) navigator.geolocation.clearWatch(this.watch);
       this.watch = null; clearInterval(this.timer); this.pending = null; this.lastPos = null;
@@ -65,6 +80,25 @@
     },
     _coarse(p) { return `Your phone only gives an approximate location (±${Math.round(p.coords.accuracy)} m). Turn on precise location: phone Settings → Apps → your browser → Permissions → Location → "Use precise location".`; },
     async _lock() { try { if ('wakeLock' in navigator) this.wake = await navigator.wakeLock.request('screen'); } catch {} },
+    /** State pushed by the Android app's background service: {active, busId, status, message, error, xp, thanks, progress, lat, lng, acc, speed, fixAt, sentAt} */
+    _native(s) {
+      if (typeof s === 'string') try { s = JSON.parse(s); } catch { return; }
+      if (!s) return;
+      const was = this.nativeOn;
+      this.nativeOn = !!s.active;
+      if (s.busId) this.busId = s.busId;
+      if (s.xp != null && s.xp > this.xp) { const gain = s.xp - this.xp; this.xp = s.xp; if (was) this.onXp(gain, s.xp); }
+      if (s.thanks != null) this.thanks = s.thanks;
+      this.progress = s.progress ?? null; this.last = s.sentAt || 0;
+      this.lastPos = s.lat != null ? { coords: { latitude: s.lat, longitude: s.lng, accuracy: s.acc ?? 0, speed: s.speed ?? null, heading: null }, timestamp: s.fixAt || Date.now() } : null;
+      if (this.nativeOn && s.status === 'verified' && s.lat != null && window.Feed && s.sentAt !== this._ingested) {
+        this._ingested = s.sentAt;
+        Feed.ingest({ id: this.busId, lat: s.lat, lng: s.lng, speed: s.speed ?? null, heading: null, ts: Date.now() + Feed.offset - 3000, source: 'crowd' });
+      }
+      if (!this.nativeOn && !s.message) { this.busId = null; this.status = null; this.message = ''; this.error = null; return this.onChange(this); }
+      this.status = this.nativeOn ? s.status || 'starting' : null; this.message = s.message || ''; this.error = !!s.error;
+      this.onChange(this);
+    },
     _set(status, message, isError) { this.status = status; this.message = message; this.error = !!isError; this.onChange(this); },
 
     async _flush() {
@@ -94,4 +128,6 @@
     },
   };
   window.Share = Share;
+  // The app was reopened while its background service is still sharing: pick up where it is.
+  if (NATIVE) try { const s = JSON.parse(NATIVE.state() || 'null'); if (s && s.active) setTimeout(() => Share._native(s), 0); } catch {}
 })();
