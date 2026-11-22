@@ -100,6 +100,44 @@
       const cur = st.fix.s, dir = st.dir;
       return !st.r.stops.some(x => (dir > 0 ? x.s > seats.s + 40 && x.s <= cur + 30 : x.s < seats.s - 40 && x.s >= cur - 30));
     },
+    /**
+     * Estimated times along a route for both trips (same logic as server/_eta.js):
+     * morning = between stops with pick-up times, else departure + distance / average speed; evening = campus departure + distance back.
+     */
+    routeTimes(routeId) {
+      const r = this.routes.find(x => x.id === routeId); if (!r) return null;
+      if (r._times && r._times.rev === this.rev) return r._times;
+      const bus = [...this.state.values()].filter(x => x.r === r).sort((a, b) => (hm(a.schedule?.departStart) ?? 1e9) - (hm(b.schedule?.departStart) ?? 1e9))[0];
+      const sc = bus?.schedule || {}, L = r.length, last = r.stops.length - 1;
+      const timed = r.stops.filter((x, i) => i < last && hm(x.time) != null);
+      let v = EST_KMH * 1000 / 60;
+      if (timed.length >= 2) { const a = timed[0], b = timed[timed.length - 1], dt = hm(b.time) - hm(a.time); if (dt > 0 && b.s > a.s) v = Math.min(700, Math.max(250, (b.s - a.s) / dt)); }
+      const dwell = (from, to) => STOP_MIN * r.stops.filter((x, i) => i < last && x.s > from + 30 && x.s < to - 30).length;
+      const dep = hm(sc.departStart), back = hm(sc.departCampus);
+      const am = s => {
+        if (timed.length) {
+          for (let i = 1; i < timed.length; i++) { const a = timed[i - 1], b = timed[i]; if (s >= a.s && s <= b.s) return hm(a.time) + (hm(b.time) - hm(a.time)) * ((s - a.s) / ((b.s - a.s) || 1)); }
+          const f = timed[0], l = timed[timed.length - 1];
+          return s < f.s ? hm(f.time) - (f.s - s) / v : hm(l.time) + (s - l.s) / v + dwell(l.s, s);
+        }
+        return dep == null ? null : dep + s / v + dwell(0, s);
+      };
+      const pm = s => (back == null ? null : back + (L - s) / v + dwell(s, L));
+      const fmt = m => (m == null ? null : `${String(Math.floor(((m % 1440) + 1440) % 1440 / 60)).padStart(2, '0')}:${String(Math.round(((m % 60) + 60) % 60) % 60).padStart(2, '0')}`);
+      const byName = {};
+      r.stops.forEach((x, i) => { byName[x.name] = { am: x.time && i < last ? x.time : fmt(am(x.s)), pm: fmt(pm(x.s)), scheduled: !!(x.time && i < last) }; });
+      r._times = { rev: this.rev, v, am, pm, fmt, byName, length: L };
+      return r._times;
+    },
+    /** Where a point lies on a route: distance to campus, neighbouring stops and estimated times (both trips). */
+    estimateAt(routeId, lat, lng) {
+      const r = this.routes.find(x => x.id === routeId), T = r && this.routeTimes(routeId); if (!T) return null;
+      const p = project(r, ...xy(lng, lat)), extra = p.dist / T.v, beyondStart = p.s < 60 && p.dist > 150;
+      const am = T.am(p.s), pm = T.pm(p.s), after = r.stops.filter(x => x.s <= p.s).length;
+      return { s: p.s, off: Math.round(p.dist), kmToCampus: +((r.length - p.s + p.dist) / 1000).toFixed(1), beyondStart,
+        am: am == null ? null : T.fmt(am + (beyondStart ? -extra : extra)), pm: pm == null ? null : T.fmt(pm + extra),
+        between: [r.stops[after - 1]?.name || null, r.stops[after]?.name || null] };
+    },
     boostNow() { const b = this.boost, d = this.date(); return b && d >= b.from && d <= b.to ? b : null; },
 
     /** Load routes and bus->route assignment (public). Safe to call again when `rev` changes. */

@@ -73,6 +73,11 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS badge_events (user_id TEXT NOT NULL, badge TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (user_id, badge))`,
   `CREATE INDEX IF NOT EXISTS badge_events_at ON badge_events (at)`,
   `CREATE TABLE IF NOT EXISTS route_wins (month TEXT NOT NULL, route_id TEXT NOT NULL, pct REAL NOT NULL, PRIMARY KEY (month))`,
+  // ---- Stops suggested by riders: the admin approves (adds to the route), edits, or rejects ----
+  `CREATE TABLE IF NOT EXISTS stop_suggestions (id INTEGER PRIMARY KEY AUTOINCREMENT, route_id TEXT NOT NULL, name TEXT NOT NULL, lat REAL NOT NULL, lng REAL NOT NULL,
+     note TEXT, user_id TEXT, status TEXT NOT NULL DEFAULT 'pending', s REAL, off_m REAL, km_to_campus REAL, est_am TEXT, est_pm TEXT, between_stops TEXT,
+     created_at INTEGER NOT NULL, reviewed_at INTEGER, admin_note TEXT)`,
+  `CREATE INDEX IF NOT EXISTS stop_suggestions_status ON stop_suggestions (status, created_at)`,
 ];
 // Columns added after the first release (applied to existing databases; "duplicate column" errors are ignored).
 const MIGRATIONS = [
@@ -88,11 +93,12 @@ const MIGRATIONS = [
   `ALTER TABLE trips ADD COLUMN seats TEXT`,           // 'plenty' | 'few' | 'full', reported by a verified rider
   `ALTER TABLE trips ADD COLUMN seats_at INTEGER`,
   `ALTER TABLE trips ADD COLUMN seats_s REAL`,       // where on the route the seat report was made (it expires at the next stop)
+  `ALTER TABLE push_subs ADD COLUMN remind_pm INTEGER NOT NULL DEFAULT 0`, // evening reminder (before the bus leaves campus): only if asked for
   `CREATE UNIQUE INDEX IF NOT EXISTS users_student ON users (student_id) WHERE student_id IS NOT NULL`,
 ];
 
 // Bump SCHEMA_V whenever SCHEMA or MIGRATIONS change.
-const SCHEMA_V = '7';
+const SCHEMA_V = '9';
 // Create any missing tables once per serverless instance (cheap: CREATE TABLE IF NOT EXISTS).
 let _schema;
 export function ensureSchema() {
