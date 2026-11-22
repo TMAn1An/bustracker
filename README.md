@@ -261,7 +261,9 @@ always-on server (e.g. Oracle Cloud Always Free).
 
 ## Production (Cloudflare Workers + Turso, free plans)
 Live: https://bustracker.iubat.workers.dev (admin: `/admin/`, bus phone: `/tracker/`).
-The Cloudflare Worker `bustracker` is connected to this GitHub repo (Workers Builds): every push deploys automatically.
+The Cloudflare Worker `bustracker` is connected to this GitHub repo (Workers Builds): every push or merge to the default branch deploys
+automatically (Cloudflare needs access to the repo: GitHub → Settings → Applications → *Cloudflare Workers and Pages* → Configure).
+If a merge does not show up on the live site, open the Worker in the Cloudflare dashboard → *Deployments* and press *Retry build*.
 `worker.js` adapts the same `api/*` handlers; static files are served as Workers Static Assets (`.assetsignore` keeps code and
 config private, `_headers` sets security/cache headers). Worker secrets: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `SESSION_SECRET`.
 Optional: `TURNSTILE_SITEKEY` (var) and `TURNSTILE_SECRET` (secret) turn on a bot check when someone picks a username.
