@@ -109,7 +109,7 @@ export async function crowdFix(sid, body) {
     ses = { student_id: sid, bus_id: busId, status: 'checking', started_at: now, verified_at: null, last_ts: now, jumps: 0 };
   }
   const save = async (status, extra = {}) => {
-    const f = { verified_at: ses.verified_at, jumps: ses.jumps, ...extra };
+    const f = { verified_at: ses.verified_at, jumps: 0, ...extra }; // a normal fix ends a run of jumps
     await db().execute({ sql: `UPDATE share_sessions SET status=?, last_ts=?, last_lat=?, last_lng=?, last_s=?, verified_at=?, jumps=? WHERE student_id=?`,
       args: [status, now, lat, lng, f.last_s ?? ses.last_s ?? null, f.verified_at ?? null, f.jumps, sid] });
   };
@@ -119,7 +119,16 @@ export async function crowdFix(sid, body) {
   // 4. impossible jump since the previous fix
   if (ses.last_lat != null) {
     const dt = Math.max(1, (now - ses.last_ts) / 1000), d = metres(ses.last_lat, ses.last_lng, lat, lng);
-    if (d > 150 && (d / dt) * 3.6 > MAX_KMH) { await save('jump', { jumps: ses.jumps + 1, verified_at: null }); return reply('jump'); }
+    if (d > 150 && (d / dt) * 3.6 > MAX_KMH) {
+      // One jump is usually a GPS glitch or an old fix sent late: ignore that fix but keep a verified rider verified.
+      // Three in a row: start over (and forget the old fixes, so re-checking does not get stuck on them).
+      const jumps = (ses.jumps || 0) + 1;
+      if (jumps >= 3 || !ses.verified_at) {
+        await db().execute({ sql: 'DELETE FROM share_fixes WHERE student_id = ?', args: [sid] });
+        await save('jump', { jumps: 0, verified_at: null });
+      } else await save('jump', { jumps });
+      return reply('jump');
+    }
   }
   // 2. on the route?
   const p = project(route, lat, lng);

@@ -53,8 +53,11 @@
         if (document.visibilityState === 'hidden') { this.hiddenAt = Date.now(); return; }
         this._lock();
         const away = this.hiddenAt ? Date.now() - this.hiddenAt : 0; this.hiddenAt = 0;
-        if (away > 15000) this._set(this.status, `Sharing paused for ${Math.round(away / 1000)} s while the app was in the background. Sending again now.`);
-        this.last = 0; this._flush();
+        // The last GPS fix is from before the pause: the bus has moved on since. Never send it as "now";
+        // wait for a fresh fix (and ask for one at once).
+        this.staleBefore = Date.now(); this.pending = null;
+        if (away > 15000) this._set(this.status, `Sharing paused for ${Math.round(away / 1000)} s while the app was in the background. Waiting for a fresh GPS fix…`);
+        navigator.geolocation.getCurrentPosition(p => { if (this.active) { this.pending = p; this.lastPos = p; this.last = 0; this._flush(); } }, () => {}, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
       });
       this.onChange(this);
     },
@@ -114,6 +117,8 @@
       // the server needs it to show a bus waiting in traffic and to notice a rider who got off.
       const pos = this.pending || this.lastPos, fresh = !!this.pending;
       if (!pos || Date.now() - this.last < SEND_MS) return;
+      // re-send the last fix only while the app stayed open since it (standing still), and never one older than 3 minutes
+      if (!fresh && ((this.staleBefore && pos.timestamp < this.staleBefore) || Date.now() - pos.timestamp > 180e3)) return;
       const { coords: c } = pos; this.pending = null; this.last = Date.now();
       // No new GPS event since the last send = the phone (bus) is standing still: send speed 0, never the old speed,
       // or the map would keep pushing the bus forward in a traffic jam.
