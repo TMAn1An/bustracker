@@ -779,3 +779,5 @@ button.daybar { width: 100%; text-align: left; font: inherit; font-size: 13.5px;
 .mapcard .mc-share.ok { background: var(--green-50); border-color: var(--green-100); }
 .mapcard .mc-share.bad { background: #fef3f2; border-color: #fecdca; }
 .mapcard .mc-share span { color: var(--ink-2); } .mapcard .mc-share small { color: var(--muted); font-size: 12px; }
+.updbar { position: fixed; left: 50%; top: calc(env(safe-area-inset-top) + 64px); transform: translateX(-50%); z-index: 1500; border: 0; border-radius: 999px;
+  background: var(--ink); color: #fff; font: 500 14px/1 var(--font); padding: 11px 18px; box-shadow: 0 8px 24px rgba(0, 0, 0, .25); white-space: nowrap; }
