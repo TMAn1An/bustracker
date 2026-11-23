@@ -68,6 +68,28 @@
     history.replaceState(null, '', location.pathname);
   }
 
+  /**
+   * A page left open for hours (e.g. while sharing a whole ride) keeps running old code. Check every few minutes whether
+   * a new version is live; offer a one-tap reload that also restarts sharing, so the ride is not interrupted.
+   */
+  const versionOf = async () => { try { const t = await (await fetch('/sw.js', { cache: 'no-store' })).text(); return (t.match(/VERSION = '([^']+)'/) || [])[1] || null; } catch { return null; } };
+  async function watchUpdates() {
+    const mine = await versionOf(); if (!mine) return;
+    setInterval(async () => {
+      if (document.hidden || $('#updbar')) return;
+      const now = await versionOf(); if (!now || now === mine) return;
+      const bar = document.createElement('button'); bar.id = 'updbar'; bar.className = 'updbar';
+      bar.innerHTML = '🔄 <b>Update ready</b> · tap to reload' + (Share.active ? ' (sharing continues)' : '');
+      bar.onclick = () => { if (Share.active && !Share.native) local.set('iubat_resume_share', { bus: Share.busId, at: Date.now() }); location.reload(); };
+      document.body.appendChild(bar);
+    }, window.__updMs || 3 * 60e3);
+  }
+  function resumeShare() { // after an update reload: carry on sharing the same bus
+    const r = local.get('iubat_resume_share'); if (!r) return;
+    local.set('iubat_resume_share', null);
+    if (Date.now() - r.at < 120e3 && S.joined && r.bus) { Share.start(r.bus, S.token); toast('Updated. Sharing continues for Bus ' + r.bus + '.'); }
+  }
+
   function boot() {
     Feed.onStatus = ok => { $('#conn').hidden = ok; };
     map = createMap();
@@ -96,6 +118,7 @@
       requestAnimationFrame(loop);
     })(last);
     refresh(); setInterval(refresh, 1000);
+    resumeShare(); watchUpdates();
     setInterval(() => { if (!document.hidden) loadBoard(); }, 90e3);
 
     $('#panelBody').addEventListener('click', onClick);
