@@ -87,6 +87,11 @@
     setBuses(list) {
       if (!this.map.getSource('buses')) return;
       this._modelData = list;
+      // The 3D models are drawn on the map canvas, which only redraws when something on the map changes. The pins are
+      // HTML and move every frame, so without this the model lagged behind its pin. Redraw only when a bus moved.
+      const sig = list.map(b => `${b.lng.toFixed(7)},${b.lat.toFixed(7)},${Math.round(b.heading)}`).join('|');
+      if (this.models && sig !== this._sig) this.map.triggerRepaint();
+      this._sig = sig;
       const seen = new Set(), feats = [];
       list.forEach(b => {
         seen.add(b.id);
