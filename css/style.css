@@ -774,3 +774,8 @@ button.daybar { width: 100%; text-align: left; font: inherit; font-size: 13.5px;
 .sb-pocket small { font-size: 12px; color: var(--muted); line-height: 1.3; }
 .pkbtn { flex: none; font: 700 13px/1 var(--font); background: #111; color: #fff; border: 0; padding: 9px 13px; border-radius: 10px; }
 .sb-bglink { display: block; text-align: left; margin-top: 6px; font-size: 12.5px; font-weight: 600; color: var(--green); padding: 0; }
+.mapcard .mc-share { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; margin: -2px -2px 8px; border-radius: 10px; background: #fff7e6; border: 1px solid #fde3b0; }
+.mapcard .mc-share:only-child { margin-bottom: -2px; }
+.mapcard .mc-share.ok { background: var(--green-50); border-color: var(--green-100); }
+.mapcard .mc-share.bad { background: #fef3f2; border-color: #fecdca; }
+.mapcard .mc-share span { color: var(--ink-2); } .mapcard .mc-share small { color: var(--muted); font-size: 12px; }

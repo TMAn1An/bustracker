@@ -553,8 +553,17 @@
   function mapCard() {
     const el = $('#mapcard'); if (!el) return;
     const b = view.name === 'route' && snap.find(x => x.id === (view.busId || '')) || (view.name === 'route' && view.routeId && bestBus(busesOn(view.routeId)));
-    const show = onMap(b) && (!isMobile() || !$('#panel').classList.contains('open'));
+    const mapVisible = !isMobile() || !$('#panel').classList.contains('open');
+    const show = onMap(b) && mapVisible;
     let html = '';
+    // While I share: my own status on the map too, so I can see why the bus is not on the map yet (still checking, off route, weak GPS…)
+    if (Share.active && mapVisible) {
+      const cls = SH_CLASS[Share.status] || 'wait', g = Share.gps;
+      const prog = Share.progress != null ? ` · moved ${Math.min(400, Share.progress)} of 400 m` : '';
+      const hint = cls === 'ok' ? 'You are moving the bus for everyone.' : Share.status === 'checking' || Share.status === 'starting' ? 'The bus appears on the map once your ride is verified (about 400 m of driving).' : '';
+      html += `<div class="mc-share ${cls}"><b>📍 Sharing Bus ${esc(Share.busId)}</b><span>${esc(Share.message || '')}${prog}</span>
+        <small>${g ? `GPS ±${g.acc} m` : 'No GPS fix yet'}${hint ? ' · ' + hint : ''}</small></div>`;
+    }
     if (show) {
       const live = b.status === 'running' || b.status === 'stopped', off = b.status === 'offline';
       const state = live && b.jamMin ? `<span class="pill stopped">🚦 In traffic · ${b.jamMin} min</span>` : live ? '<span class="pill running">● Live</span>' : off ? '<span class="pill offline">Offline</span>' : '<span class="pill estimated">Estimated</span>';
@@ -564,7 +573,7 @@
       html = `<div class="mc-top"><b>Bus ${esc(b.id)}</b>${state}</div><div class="mc-line">${line}</div>
         <div class="mc-btns">${map.follow ? '<span class="mc-f on">◎ Following</span>' : `<button data-mcfollow="${esc(b.id)}">◎ Follow bus</button>`}${isMobile() ? '<button data-mcdetails>Details</button>' : ''}</div>`;
     }
-    el.hidden = !show;
+    el.hidden = !html;
     if (html !== mapCardHtml) { el.innerHTML = html; mapCardHtml = html; }
   }
 
