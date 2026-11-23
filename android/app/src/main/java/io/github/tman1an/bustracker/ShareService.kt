@@ -42,7 +42,7 @@ class ShareService : Service() {
         const val ACTION_STOP = "stop"
         private const val CHANNEL = "share"
         private const val NOTIFY_ID = 11
-        private const val SEND_MS = 10_000L          // same pace as the website (kind to the free hosting quota)
+        private const val SEND_MS = 5_000L           // same pace as the website
         private const val MAX_MS = 3 * 3600_000L     // safety: never share for more than 3 hours
         private const val STILL_M = 5f                // moved less than this since the last send = standing still
 
@@ -88,6 +88,9 @@ class ShareService : Service() {
             val loc = result.lastLocation ?: return
             latest = loc
             val now = System.currentTimeMillis()
+            // verified: my phone is the bus, so let the open app move it with every fix (about once a second)
+            if (state.optString("status") == "verified" && state.optBoolean("active"))
+                publish(base().put("status", "verified").put("message", state.optString("message")))
             if (now - startedAt > MAX_MS) { finish("Sharing stopped after 3 hours. Thank you!", false); return }
             if (!sending && now - lastSent >= SEND_MS - 500) send(loc)
         }
@@ -111,8 +114,8 @@ class ShareService : Service() {
 
         if (!running) {
             running = true
-            val req = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5_000L)
-                .setMinUpdateIntervalMillis(2_000L)
+            val req = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1_000L)
+                .setMinUpdateIntervalMillis(1_000L)
                 .setMinUpdateDistanceMeters(0f)          // keep getting fixes while standing still (fresh time, speed ~0)
                 .setWaitForAccurateLocation(false)
                 .build()
@@ -137,7 +140,7 @@ class ShareService : Service() {
     /** Speed to report: the GPS (Doppler) speed, or 0 when the bus has not moved since the last send (traffic jam, stop). */
     private fun speedOf(loc: Location): Float? {
         val prev = lastSentLoc
-        if (prev != null && loc.time - prev.time >= 8_000 && loc.distanceTo(prev) < STILL_M) return 0f
+        if (prev != null && loc.time - prev.time >= 4_000 && loc.distanceTo(prev) < STILL_M) return 0f
         return if (loc.hasSpeed()) loc.speed else null
     }
 
