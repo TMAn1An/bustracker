@@ -4,7 +4,7 @@
  */
 (function () {
   const NATIVE = window.AndroidBridge || null; // set by the IUBAT Bus Android app
-  const SEND_MS = 10000; // every 10 s: enough for the map (the app fills the gaps) and kind to the free hosting quota
+  const SEND_MS = 5000; // every 5 s: others see the bus at most a few seconds late (buses move only on real fixes)
   const Share = {
     busId: null, status: null, message: '', error: null, xp: 0, thanks: 0, onChange: () => {}, onXp: () => {},
     watch: null, wake: null, pending: null, lastPos: null, timer: null, last: 0, token: null, startedAt: 0, gpsIssue: null, progress: null, probing: false,
@@ -29,10 +29,18 @@
       // GPS can take 30-60 s to get its first fix inside a moving bus: keep watching, and tell the rider exactly what is wrong.
       this.watch = navigator.geolocation.watchPosition(p => {
         this.pending = p; this.lastPos = p; this.gpsIssue = null;
+        // Once my ride is verified, my phone IS the bus: on my own screen move it with every GPS fix (about once a second),
+        // so the bus stays on my position instead of waiting for the next send (others get it every 5 s from the server).
+        if (this.status === 'verified' && window.Feed && Date.now() - (this._localAt || 0) > 900) {
+          this._localAt = Date.now();
+          Feed.ingest({ id: this.busId, lat: p.coords.latitude, lng: p.coords.longitude, speed: p.coords.speed ?? null, heading: p.coords.heading ?? null, ts: Date.now() + Feed.offset, source: 'crowd' });
+        }
         if (this.status === 'starting' || this.status === 'no_gps') this._set('starting', p.coords.accuracy > 100 ? this._coarse(p) : 'GPS found. Checking that you are on the bus…');
         this._flush();
       }, e => {
         if (e.code === 1) { this.stop(); this._set(null, 'Location permission is blocked for this site. Tap the 🔒 next to the address → Permissions → Location → Allow, then try again.', true); return; }
+        // a short GPS hiccup (tunnel, flyover) while fixes keep coming: keep the current status instead of "Location is off"
+        if (this.lastPos && Date.now() - this.lastPos.timestamp < 30000) return;
         if (e.code === 2) { this.gpsIssue = 'off'; this._set('no_gps', 'Your phone\'s Location is off or unavailable. Turn on Location (GPS) in quick settings; sharing starts by itself.'); return; }
         this.gpsIssue = 'slow'; this._probe();
         if (!this.lastPos) this._set('no_gps', `Still looking for GPS (${Math.round((Date.now() - this.startedAt) / 1000)} s)… Keep the screen on, near a window.`);
@@ -91,9 +99,9 @@
       if (s.thanks != null) this.thanks = s.thanks;
       this.progress = s.progress ?? null; this.last = s.sentAt || 0;
       this.lastPos = s.lat != null ? { coords: { latitude: s.lat, longitude: s.lng, accuracy: s.acc ?? 0, speed: s.speed ?? null, heading: null }, timestamp: s.fixAt || Date.now() } : null;
-      if (this.nativeOn && s.status === 'verified' && s.lat != null && window.Feed && s.sentAt !== this._ingested) {
-        this._ingested = s.sentAt;
-        Feed.ingest({ id: this.busId, lat: s.lat, lng: s.lng, speed: s.speed ?? null, heading: null, ts: Date.now() + Feed.offset - 3000, source: 'crowd' });
+      if (this.nativeOn && s.status === 'verified' && s.lat != null && window.Feed && (s.fixAt || s.sentAt) !== this._ingested) {
+        this._ingested = s.fixAt || s.sentAt; // a new GPS fix: move the bus on my own screen at once
+        Feed.ingest({ id: this.busId, lat: s.lat, lng: s.lng, speed: s.speed ?? null, heading: null, ts: Date.now() + Feed.offset, source: 'crowd' });
       }
       if (!this.nativeOn && !s.message) { this.busId = null; this.status = null; this.message = ''; this.error = null; return this.onChange(this); }
       this.status = this.nativeOn ? s.status || 'starting' : null; this.message = s.message || ''; this.error = !!s.error;
