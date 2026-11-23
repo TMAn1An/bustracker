@@ -145,7 +145,8 @@ export async function crowdFix(sid, body) {
   // 3. moving along the route like a vehicle?
   const first = fixes[0], last = fixes[fixes.length - 1], span = last.ts - first.ts;
   const progress = last.s - first.s, kmh = span > 0 ? (Math.abs(progress) / (span / 1000)) * 3.6 : 0;
-  const dir = progress >= 0 ? 1 : -1;
+  // standing still (traffic jam, at a stop): no direction from the fixes, so use the trip's direction (to campus in the morning)
+  const dir = Math.abs(progress) < 50 ? (leg === 'am' ? 1 : -1) : progress >= 0 ? 1 : -1;
   // backtracking more than 150 m against the travel direction looks like noise or a fake
   let maxBack = 0, peak = first.s;
   for (const f of fixes) { if (dir > 0) { peak = Math.max(peak, f.s); maxBack = Math.max(maxBack, peak - f.s); } else { peak = Math.min(peak, f.s); maxBack = Math.max(maxBack, f.s - peak); } }
@@ -153,6 +154,21 @@ export async function crowdFix(sid, body) {
 
   let verifiedAt = ses.verified_at;
   if (!verifiedAt && moving) verifiedAt = now;
+  // Back on the same trip: a rider who already moved this bus today on this trip (and lost verification, e.g. the app
+  // was in the background) is trusted again at once when the fix fits where the bus was last seen: on the route, not
+  // behind it, and reachable at bus speed. Otherwise a bus stuck in traffic or at campus could never be updated again.
+  if (!verifiedAt) {
+    const [was, last] = await Promise.all([
+      db().execute({ sql: 'SELECT 1 FROM contrib WHERE user_id = ? AND bus_id = ? AND day = ? AND leg = ?', args: [sid, busId, bt.day, leg] }),
+      db().execute({ sql: 'SELECT lat, lng, ts FROM positions WHERE bus_id = ?', args: [busId] }),
+    ]);
+    const lp = last.rows[0];
+    if (was.rows[0] && lp && trip0?.state === 'live') {
+      const q = project(route, Number(lp.lat), Number(lp.lng)), ahead = (leg === 'am' ? 1 : -1) * (p.s - q.s);
+      const secs = Math.max(1, (now - Number(lp.ts)) / 1000);
+      if (ahead > -150 && (Math.max(0, ahead) / secs) * 3.6 <= MAX_KMH) verifiedAt = now;
+    }
+  }
   if (!verifiedAt) { await save('checking', { last_s: p.s }); return reply('checking', { progress: Math.round(Math.abs(progress)) }); }
 
   // 5. stalled for a long time (e.g. got off the bus)?
